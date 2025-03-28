@@ -97,10 +97,10 @@ const DjiLoginPage: React.FC = () => {
         timeout: 30
       });
 
-      addLog('MQTT Parameters (excluding password):', JSON.stringify({
+      addLog(`MQTT Parameters (excluding password): ${JSON.stringify({
         ...JSON.parse(mqttParams),
         password: '***'
-      }));
+      })}`);
 
       addLog('Attempting to load MQTT component...');
       const mqttLoadResultStr = await window.djiBridge.platformLoadComponent('thing', mqttParams);
