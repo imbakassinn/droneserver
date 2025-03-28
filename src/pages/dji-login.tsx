@@ -84,7 +84,22 @@ const DjiLoginPage: React.FC = () => {
       // MQTT Setup
       addLog('Setting up MQTT connection...');
       
-      // Try different connection parameters
+      // Log available methods
+      addLog('Available DJI Bridge methods:');
+      for (const method in window.djiBridge) {
+        addLog(`- ${method}`);
+      }
+      
+      // Try getting device info first
+      try {
+        const rcSN = await window.djiBridge.platformGetRemoteControllerSN();
+        const aircraftSN = await window.djiBridge.platformGetAircraftSN();
+        addLog(`Remote Controller SN: ${rcSN}`);
+        addLog(`Aircraft SN: ${aircraftSN}`);
+      } catch (err) {
+        addLog('Failed to get device info');
+      }
+
       const cloudParams = JSON.stringify({
         host: '89.17.150.216',
         port: 1883,
@@ -94,8 +109,7 @@ const DjiLoginPage: React.FC = () => {
         messageCallback: 'onTelemetryChange',
         clientId: `dji_pilot_${Date.now()}`,
         clean: true,
-        protocol: 'tcp',  // Explicitly use TCP
-        rejectUnauthorized: false  // Allow insecure connections if needed
+        protocol: 'tcp'
       });
 
       addLog('Loading Cloud Module...');
@@ -107,38 +121,38 @@ const DjiLoginPage: React.FC = () => {
         addLog(`Parsed Cloud Module Load Result: ${JSON.stringify(cloudLoadResult, null, 2)}`);
 
         if (cloudLoadResult.code === 0) {
-          // Try publishing with different QoS levels
-          const testMessages = [
-            { qos: 0, message: 'Test QoS 0' },
-            { qos: 1, message: 'Test QoS 1' },
-            { qos: 2, message: 'Test QoS 2' }
-          ];
+          // Try different component names for publishing
+          const componentNames = ['cloud.publish', 'cloud.send', 'thing.publish', 'thing.send'];
           
-          for (const test of testMessages) {
+          for (const component of componentNames) {
             const testPublishParams = JSON.stringify({
-              topic: 'thing/product/1581F5BKB23C900P018N/osd',
-              message: test.message,
-              qos: test.qos
+              topic: 'test',  // Try a simple topic first
+              message: `Test from ${component}`,
+              qos: 0
             });
             
-            addLog(`Attempting to publish message with QoS ${test.qos}...`);
-            const publishResult = await window.djiBridge.platformLoadComponent('cloud.publish', testPublishParams);
-            addLog(`Publish result for QoS ${test.qos}: ${publishResult}`);
+            try {
+              addLog(`Attempting to publish using ${component}...`);
+              const publishResult = await window.djiBridge.platformLoadComponent(component, testPublishParams);
+              addLog(`${component} result: ${publishResult}`);
+            } catch (err) {
+              addLog(`Failed with ${component}: ${err}`);
+            }
             
-            // Wait a bit between messages
+            // Wait between attempts
             await new Promise(resolve => setTimeout(resolve, 1000));
           }
-          
-          // Try publishing to root topic
-          const rootTestParams = JSON.stringify({
-            topic: 'test',
-            message: 'Root topic test',
-            qos: 0
-          });
-          
-          addLog('Attempting to publish to root topic...');
-          const rootPublishResult = await window.djiBridge.platformLoadComponent('cloud.publish', rootTestParams);
-          addLog(`Root topic publish result: ${rootPublishResult}`);
+
+          // Try direct method if available
+          if (typeof window.djiBridge.cloudPublish === 'function') {
+            try {
+              addLog('Attempting direct cloudPublish...');
+              const directResult = await window.djiBridge.cloudPublish('test', 'Direct publish test');
+              addLog(`Direct publish result: ${directResult}`);
+            } catch (err) {
+              addLog('Direct publish failed');
+            }
+          }
         }
       } catch (parseErr: any) {
         addLog(`Failed to parse Cloud Module result: ${parseErr?.message || 'Unknown parse error'}`);
@@ -224,48 +238,28 @@ const DjiLoginPage: React.FC = () => {
         const status = JSON.parse(statusStr);
         addLog(`Parsed MQTT Status: ${JSON.stringify(status, null, 2)}`);
         
-        if (status.code === 0) {
-          if (status.data?.connectState === 1) {
-            addLog('MQTT Connected Successfully! Will try to publish test message...');
-            
-            // Try publishing a test message on successful connection
-            const testPublishParams = JSON.stringify({
-              topic: 'thing/test',
-              message: 'Test message after connection',
+        // If connected, try an immediate publish
+        if (status.code === 0 && status.data?.connectState === 1) {
+          addLog('MQTT Connected, attempting immediate publish...');
+          try {
+            const testParams = JSON.stringify({
+              topic: 'test',
+              message: 'Connection confirmed test',
               qos: 0
             });
-            
-            try {
-              const pubResult = await window.djiBridge.platformLoadComponent('cloud.publish', testPublishParams);
-              addLog(`Test publish after connect result: ${pubResult}`);
-            } catch (err: any) {
-              addLog(`Publish error after connect: ${err.message || 'Unknown error'}`);
-            }
-          } else if (status.data?.connectState === 0) {
-            addLog('MQTT Disconnected');
-            setError('MQTT Disconnected');
+            const result = await window.djiBridge.platformLoadComponent('cloud.publish', testParams);
+            addLog(`Immediate publish result: ${result}`);
+          } catch (err) {
+            addLog(`Immediate publish failed: ${err}`);
           }
-        } else {
-          const errorMsg = `MQTT Error: ${status.message || 'Unknown error'} (Code: ${status.code})`;
-          addLog(`ERROR: ${errorMsg}`);
-          setError(errorMsg);
         }
-      } catch (err: any) {
-        const errorMsg = `Failed to parse MQTT status: ${err.message || 'Unknown error'}`;
-        addLog(`ERROR: ${errorMsg}`);
-        setError(errorMsg);
+      } catch (err) {
+        addLog(`Failed to parse status: ${err}`);
       }
     };
 
     window.onTelemetryChange = (dataStr: string) => {
-      addLog(`Received raw telemetry message: ${dataStr}`);
-      try {
-        const data = JSON.parse(dataStr);
-        addLog(`Parsed telemetry message: ${JSON.stringify(data, null, 2)}`);
-        setTelemetryData(data);
-      } catch (err: any) {
-        addLog(`Failed to parse telemetry: ${err.message || 'Unknown parse error'}`);
-      }
+      addLog(`Raw telemetry received: ${dataStr}`);
     };
 
     return () => {
