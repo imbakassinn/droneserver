@@ -27,6 +27,7 @@ declare global {
     djiBridge?: any; // Declare djiBridge presence
     onMqttStatusChange?: (status: string) => void;
     onWsStatusChange?: (status: string) => void;
+    onTelemetryChange?: (dataStr: string) => void;
     // Add other callbacks if needed
   }
 }
@@ -40,6 +41,7 @@ const DjiLoginPage: React.FC = () => {
   const [isPilotLoggedIn, setIsPilotLoggedIn] = useState(false);
   const { login } = useAuth();
   const router = useRouter();
+  const [telemetryData, setTelemetryData] = useState<any>(null);
 
   // For testing, we'll skip the DJI Pilot check
   const isDjiPilot = true; // Temporarily force this to true
@@ -180,7 +182,7 @@ const DjiLoginPage: React.FC = () => {
 
    // --- Setup Global Callbacks ---
    useEffect(() => {
-    window.onMqttStatusChange = (statusStr: string) => {
+    window.onMqttStatusChange = async (statusStr: string) => {
         const status = JSON.parse(statusStr);
         console.log("MQTT Status Callback:", status);
         // You might update React state based on connection status.code here
@@ -188,6 +190,19 @@ const DjiLoginPage: React.FC = () => {
         // status.code != 0 is likely an error during connection attempt
         if(status.code === 0 && status.data?.connectState === 1) {
             console.log("MQTT Connected!");
+            
+            // Subscribe to telemetry topic
+            const subParam = JSON.stringify({
+              topic: 'thing/status/#', // Adjust topic based on DJI documentation
+              qos: 0
+            });
+            
+            try {
+              const subResult = await window.djiBridge.thingSubscribe(subParam);
+              console.log('Subscribed to telemetry:', subResult);
+            } catch (err) {
+              console.error('Failed to subscribe to telemetry:', err);
+            }
         } else if (status.code === 0 && status.data?.connectState === 0) {
              console.log("MQTT Disconnected.");
              // Maybe reset isPilotLoggedIn state here?
@@ -202,18 +217,31 @@ const DjiLoginPage: React.FC = () => {
         // Handle WS connection changes if needed
     };
 
+    // Add telemetry callback
+    window.onTelemetryChange = handleTelemetryUpdate;
+
     // Cleanup
     return () => {
         delete window.onMqttStatusChange;
         delete window.onWsStatusChange;
+        delete window.onTelemetryChange;
     }
   }, []);
 
+  // Add this function to handle telemetry updates
+  const handleTelemetryUpdate = (dataStr: string) => {
+    try {
+      const data = JSON.parse(dataStr);
+      setTelemetryData(data);
+    } catch (err) {
+      console.error('Failed to parse telemetry data:', err);
+    }
+  };
 
   // --- Render Logic ---
   return (
     <div className={styles.container}>
-      <h1 className={styles.title}>Login</h1>
+      <h1 className={styles.title}>DJI Controller Data</h1>
       
       {!isDjiPilot && (
         <div className={styles.error}>
@@ -222,47 +250,52 @@ const DjiLoginPage: React.FC = () => {
       )}
 
       {isDjiPilot && (
-        <form onSubmit={handleLogin} className={styles.form}>
-          <div className={styles.inputGroup}>
-            <label htmlFor="username">Username</label>
-            <input
-              type="text"
-              id="username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+        <>
+          <form onSubmit={handleLogin} className={styles.form}>
+            <div className={styles.inputGroup}>
+              <label htmlFor="username">Username</label>
+              <input
+                type="text"
+                id="username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                disabled={isLoading}
+                required
+              />
+            </div>
+
+            <div className={styles.inputGroup}>
+              <label htmlFor="password">Password</label>
+              <input
+                type="password"
+                id="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={isLoading}
+                required
+              />
+            </div>
+
+            {error && <div className={styles.error}>{error}</div>}
+
+            <button
+              type="submit"
+              className={styles.button}
               disabled={isLoading}
-              required
-            />
-          </div>
+            >
+              {isLoading ? 'Logging in...' : 'Login'}
+            </button>
+          </form>
 
-          <div className={styles.inputGroup}>
-            <label htmlFor="password">Password</label>
-            <input
-              type="password"
-              id="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              disabled={isLoading}
-              required
-            />
-          </div>
-
-          {error && <div className={styles.error}>{error}</div>}
-
-          <button
-            type="submit"
-            className={styles.button}
-            disabled={isLoading}
-          >
-            {isLoading ? 'Logging in...' : 'Login'}
-          </button>
-
-          {isPilotLoggedIn && (
-            <div className={styles.successMessage}>
-              <p>Successfully logged in!</p>
+          {isPilotLoggedIn && telemetryData && (
+            <div className={styles.telemetryContainer}>
+              <h2>Live Telemetry Data</h2>
+              <pre className={styles.telemetryData}>
+                {JSON.stringify(telemetryData, null, 2)}
+              </pre>
             </div>
           )}
-        </form>
+        </>
       )}
 
       <div className={styles.info}>
