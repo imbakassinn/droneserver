@@ -83,32 +83,19 @@ const DjiLoginPage: React.FC = () => {
 
       // MQTT Setup
       addLog('Setting up MQTT connection...');
-      addLog(`MQTT Host: ${djiConfig.mqttHost}`);
-      addLog(`MQTT Username: ${djiConfig.mqttUsername}`);
       
+      // Simplify the MQTT parameters
       const cloudParams = JSON.stringify({
-        host: djiConfig.mqttHost,
-        username: djiConfig.mqttUsername,
-        password: djiConfig.mqttPassword,
+        host: '89.17.150.216',  // Remove mqtt:// prefix
+        port: 1883,             // Specify port separately
+        username: 'droneuser',
+        password: 'Jotunheimar',
         connectCallback: 'onMqttStatusChange',
         messageCallback: 'onTelemetryChange',
-        clientId: `dji_pilot_${Math.random().toString(16).slice(2, 8)}`,
-        clean: true,
-        keepalive: 60,
-        timeout: 30
+        clientId: `dji_pilot_${Date.now()}`,
+        clean: true
       });
 
-      // Test message to the exact topic you're monitoring
-      const testPublishParams = JSON.stringify({
-        topic: 'thing/product/1581F5BKB23C900P018N/osd',
-        message: JSON.stringify({
-          test: true,
-          timestamp: new Date().toISOString(),
-          message: 'Test message from DJI Pilot'
-        }),
-        qos: 0
-      });
-      
       addLog('Loading Cloud Module...');
       const cloudLoadResultStr = await window.djiBridge.platformLoadComponent('cloud', cloudParams);
       addLog(`Raw Cloud Module Load Result: ${cloudLoadResultStr}`);
@@ -118,38 +105,28 @@ const DjiLoginPage: React.FC = () => {
         addLog(`Parsed Cloud Module Load Result: ${JSON.stringify(cloudLoadResult, null, 2)}`);
 
         if (cloudLoadResult.code === 0) {
-          addLog('Cloud Module loaded successfully, attempting to publish test message...');
+          // Simple text message first
+          const testPublishParams = JSON.stringify({
+            topic: 'thing/product/1581F5BKB23C900P018N/osd',
+            message: 'Simple test message',
+            qos: 0
+          });
           
-          // Try publishing test message
+          addLog('Attempting to publish test message...');
           const publishResult = await window.djiBridge.platformLoadComponent('cloud.publish', testPublishParams);
-          addLog(`Test publish result: ${publishResult}`);
+          addLog(`Publish result: ${publishResult}`);
           
-          // Subscribe to the exact topic
-          const subscribeParams = JSON.stringify({
-            topic: 'thing/product/1581F5BKB23C900P018N/osd',
-            qos: 0
-          });
-          
-          const subResult = await window.djiBridge.platformLoadComponent('cloud.subscribe', subscribeParams);
-          addLog(`Subscription result: ${subResult}`);
-          
-          // Try publishing another message after subscription
-          const postSubPublishParams = JSON.stringify({
-            topic: 'thing/product/1581F5BKB23C900P018N/osd',
-            message: JSON.stringify({
-              test: true,
-              timestamp: new Date().toISOString(),
-              message: 'Post-subscription test message'
-            }),
-            qos: 0
-          });
-          
-          const postSubPublishResult = await window.djiBridge.platformLoadComponent('cloud.publish', postSubPublishParams);
-          addLog(`Post-subscription publish result: ${postSubPublishResult}`);
-        } else {
-          const errorMsg = `Failed to load Cloud Module: ${cloudLoadResult.message || 'Unknown error'} (Code: ${cloudLoadResult.code})`;
-          addLog(`ERROR: ${errorMsg}`);
-          setError(errorMsg);
+          // Wait a bit and try another message
+          setTimeout(async () => {
+            const secondTestParams = JSON.stringify({
+              topic: 'thing/product/1581F5BKB23C900P018N/osd',
+              message: 'Delayed test message',
+              qos: 0
+            });
+            
+            const secondResult = await window.djiBridge.platformLoadComponent('cloud.publish', secondTestParams);
+            addLog(`Second publish result: ${secondResult}`);
+          }, 5000);
         }
       } catch (parseErr: any) {
         addLog(`Failed to parse Cloud Module result: ${parseErr?.message || 'Unknown parse error'}`);
