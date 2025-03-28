@@ -109,8 +109,8 @@ const DjiLoginPage: React.FC = () => {
       try {
         const mqttLoadResult = JSON.parse(mqttLoadResultStr);
         addLog(`Parsed MQTT Load Result: ${JSON.stringify(mqttLoadResult, null, 2)}`);
-      } catch (parseErr) {
-        addLog(`Failed to parse MQTT result: ${parseErr.message}`);
+      } catch (parseErr: any) {
+        addLog(`Failed to parse MQTT result: ${parseErr?.message || 'Unknown parse error'}`);
       }
 
       // Set Workspace Info
