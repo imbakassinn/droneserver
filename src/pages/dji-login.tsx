@@ -86,7 +86,6 @@ const DjiLoginPage: React.FC = () => {
       addLog(`MQTT Host: ${djiConfig.mqttHost}`);
       addLog(`MQTT Username: ${djiConfig.mqttUsername}`);
       
-      // First, load the Cloud Module for MQTT
       const cloudParams = JSON.stringify({
         host: djiConfig.mqttHost,
         username: djiConfig.mqttUsername,
@@ -99,15 +98,14 @@ const DjiLoginPage: React.FC = () => {
         timeout: 30
       });
 
-      addLog(`Cloud Module Parameters (excluding password): ${JSON.stringify({
-        ...JSON.parse(cloudParams),
-        password: '***'
-      })}`);
-
-      // Try publishing a test message first to verify MQTT server connection
+      // Test message to the exact topic you're monitoring
       const testPublishParams = JSON.stringify({
-        topic: 'thing/test',
-        message: 'Test message from DJI Pilot',
+        topic: 'thing/product/1581F5BKB23C900P018N/osd',
+        message: JSON.stringify({
+          test: true,
+          timestamp: new Date().toISOString(),
+          message: 'Test message from DJI Pilot'
+        }),
         qos: 0
       });
       
@@ -120,28 +118,34 @@ const DjiLoginPage: React.FC = () => {
         addLog(`Parsed Cloud Module Load Result: ${JSON.stringify(cloudLoadResult, null, 2)}`);
 
         if (cloudLoadResult.code === 0) {
-          addLog('Cloud Module loaded successfully');
+          addLog('Cloud Module loaded successfully, attempting to publish test message...');
           
           // Try publishing test message
           const publishResult = await window.djiBridge.platformLoadComponent('cloud.publish', testPublishParams);
           addLog(`Test publish result: ${publishResult}`);
           
-          // Subscribe to multiple topics to ensure we catch messages
-          const topics = [
-            'thing/#',
-            'thing/product/#',
-            'thing/test'
-          ];
+          // Subscribe to the exact topic
+          const subscribeParams = JSON.stringify({
+            topic: 'thing/product/1581F5BKB23C900P018N/osd',
+            qos: 0
+          });
           
-          for (const topic of topics) {
-            const subscribeParams = JSON.stringify({
-              topic,
-              qos: 0
-            });
-            
-            const subResult = await window.djiBridge.platformLoadComponent('cloud.subscribe', subscribeParams);
-            addLog(`Subscription attempt result for ${topic}: ${subResult}`);
-          }
+          const subResult = await window.djiBridge.platformLoadComponent('cloud.subscribe', subscribeParams);
+          addLog(`Subscription result: ${subResult}`);
+          
+          // Try publishing another message after subscription
+          const postSubPublishParams = JSON.stringify({
+            topic: 'thing/product/1581F5BKB23C900P018N/osd',
+            message: JSON.stringify({
+              test: true,
+              timestamp: new Date().toISOString(),
+              message: 'Post-subscription test message'
+            }),
+            qos: 0
+          });
+          
+          const postSubPublishResult = await window.djiBridge.platformLoadComponent('cloud.publish', postSubPublishParams);
+          addLog(`Post-subscription publish result: ${postSubPublishResult}`);
         } else {
           const errorMsg = `Failed to load Cloud Module: ${cloudLoadResult.message || 'Unknown error'} (Code: ${cloudLoadResult.code})`;
           addLog(`ERROR: ${errorMsg}`);
