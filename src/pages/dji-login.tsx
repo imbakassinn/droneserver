@@ -210,8 +210,8 @@ const DjiLoginPage: React.FC = () => {
               try {
                 const subResult = JSON.parse(subResultStr);
                 addLog(`Parsed subscription result: ${JSON.stringify(subResult, null, 2)}`);
-              } catch (parseErr) {
-                addLog(`Failed to parse subscription result: ${parseErr.message}`);
+              } catch (parseErr: any) {
+                addLog(`Failed to parse subscription result: ${parseErr?.message || 'Unknown parse error'}`);
               }
             } catch (err: any) {
               addLog(`Subscription error: ${err.message || 'Unknown error'} (${JSON.stringify(err)})`);
@@ -243,7 +243,7 @@ const DjiLoginPage: React.FC = () => {
         const data = JSON.parse(dataStr);
         setTelemetryData(data);
       } catch (err: any) {
-        addLog(`Failed to parse telemetry: ${err.message}`);
+        addLog(`Failed to parse telemetry: ${err.message || 'Unknown parse error'}`);
       }
     };
 
