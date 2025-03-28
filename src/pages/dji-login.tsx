@@ -84,16 +84,18 @@ const DjiLoginPage: React.FC = () => {
       // MQTT Setup
       addLog('Setting up MQTT connection...');
       
-      // Simplify the MQTT parameters
+      // Try different connection parameters
       const cloudParams = JSON.stringify({
-        host: '89.17.150.216',  // Remove mqtt:// prefix
-        port: 1883,             // Specify port separately
+        host: '89.17.150.216',
+        port: 1883,
         username: 'droneuser',
         password: 'Jotunheimar',
         connectCallback: 'onMqttStatusChange',
         messageCallback: 'onTelemetryChange',
         clientId: `dji_pilot_${Date.now()}`,
-        clean: true
+        clean: true,
+        protocol: 'tcp',  // Explicitly use TCP
+        rejectUnauthorized: false  // Allow insecure connections if needed
       });
 
       addLog('Loading Cloud Module...');
@@ -105,28 +107,38 @@ const DjiLoginPage: React.FC = () => {
         addLog(`Parsed Cloud Module Load Result: ${JSON.stringify(cloudLoadResult, null, 2)}`);
 
         if (cloudLoadResult.code === 0) {
-          // Simple text message first
-          const testPublishParams = JSON.stringify({
-            topic: 'thing/product/1581F5BKB23C900P018N/osd',
-            message: 'Simple test message',
+          // Try publishing with different QoS levels
+          const testMessages = [
+            { qos: 0, message: 'Test QoS 0' },
+            { qos: 1, message: 'Test QoS 1' },
+            { qos: 2, message: 'Test QoS 2' }
+          ];
+          
+          for (const test of testMessages) {
+            const testPublishParams = JSON.stringify({
+              topic: 'thing/product/1581F5BKB23C900P018N/osd',
+              message: test.message,
+              qos: test.qos
+            });
+            
+            addLog(`Attempting to publish message with QoS ${test.qos}...`);
+            const publishResult = await window.djiBridge.platformLoadComponent('cloud.publish', testPublishParams);
+            addLog(`Publish result for QoS ${test.qos}: ${publishResult}`);
+            
+            // Wait a bit between messages
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+          
+          // Try publishing to root topic
+          const rootTestParams = JSON.stringify({
+            topic: 'test',
+            message: 'Root topic test',
             qos: 0
           });
           
-          addLog('Attempting to publish test message...');
-          const publishResult = await window.djiBridge.platformLoadComponent('cloud.publish', testPublishParams);
-          addLog(`Publish result: ${publishResult}`);
-          
-          // Wait a bit and try another message
-          setTimeout(async () => {
-            const secondTestParams = JSON.stringify({
-              topic: 'thing/product/1581F5BKB23C900P018N/osd',
-              message: 'Delayed test message',
-              qos: 0
-            });
-            
-            const secondResult = await window.djiBridge.platformLoadComponent('cloud.publish', secondTestParams);
-            addLog(`Second publish result: ${secondResult}`);
-          }, 5000);
+          addLog('Attempting to publish to root topic...');
+          const rootPublishResult = await window.djiBridge.platformLoadComponent('cloud.publish', rootTestParams);
+          addLog(`Root topic publish result: ${rootPublishResult}`);
         }
       } catch (parseErr: any) {
         addLog(`Failed to parse Cloud Module result: ${parseErr?.message || 'Unknown parse error'}`);
