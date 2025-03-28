@@ -39,12 +39,9 @@ const DjiLoginPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPilotLoggedIn, setIsPilotLoggedIn] = useState(false);
-  const { login } = useAuth();
-  const router = useRouter();
   const [telemetryData, setTelemetryData] = useState<any>(null);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
-
-  // For testing, we'll skip the DJI Pilot check
+  const { login } = useAuth();
   const isDjiPilot = true; // Temporarily force this to true
 
   // Helper function to add debug logs
@@ -52,7 +49,6 @@ const DjiLoginPage: React.FC = () => {
     setDebugLogs(prev => [...prev, `${new Date().toISOString()}: ${message}`]);
   };
 
-  // --- JSBridge Communication Logic ---
   const setupDjiConnection = async (djiConfig: DjiConfig) => {
     setError(null);
     addLog('Attempting DJI JSBridge setup...');
@@ -75,12 +71,22 @@ const DjiLoginPage: React.FC = () => {
       const licenseResult = JSON.parse(licenseResultStr);
       addLog(`License verification result: ${JSON.stringify(licenseResult)}`);
 
+      // API Module Setup
+      addLog('Loading API Module...');
+      const apiParams = JSON.stringify({ 
+        host: djiConfig.serverBaseUrl, 
+        token: djiConfig.sessionToken 
+      });
+      const apiLoadResultStr = await window.djiBridge.platformLoadComponent('api', apiParams);
+      const apiLoadResult = JSON.parse(apiLoadResultStr);
+      addLog(`API Load Result: ${JSON.stringify(apiLoadResult)}`);
+
       // MQTT Setup
       addLog('Setting up MQTT connection...');
       addLog(`MQTT Host: ${djiConfig.mqttHost}`);
       addLog(`MQTT Username present: ${!!djiConfig.mqttUsername}`);
       
-      const thingParam = JSON.stringify({
+      const mqttParams = JSON.stringify({
         host: djiConfig.mqttHost,
         username: djiConfig.mqttUsername || '',
         password: djiConfig.mqttPassword || '',
@@ -88,76 +94,31 @@ const DjiLoginPage: React.FC = () => {
         clientId: `web_${Date.now()}`
       });
 
-      const thingLoadResultStr = await window.djiBridge.platformLoadComponent('thing', thingParam);
-      const thingLoadResult = JSON.parse(thingLoadResultStr);
-      addLog(`MQTT Load Result: ${JSON.stringify(thingLoadResult)}`);
+      addLog('Attempting to load MQTT component...');
+      const mqttLoadResultStr = await window.djiBridge.platformLoadComponent('thing', mqttParams);
+      const mqttLoadResult = JSON.parse(mqttLoadResultStr);
+      addLog(`MQTT Load Result: ${JSON.stringify(mqttLoadResult)}`);
 
-      // --- Load Core Modules ---
+      // Set Workspace Info
+      addLog('Setting Workspace ID...');
+      const wsIdResult = await window.djiBridge.platformSetWorkspaceId(djiConfig.workspaceId);
+      addLog(`Workspace ID Result: ${JSON.stringify(wsIdResult)}`);
 
-      // 2. Load API module [cite: 3927]
-      console.log('Loading API Module...');
-      const apiParam = JSON.stringify({ host: djiConfig.serverBaseUrl, token: djiConfig.sessionToken });
-      const apiLoadResultStr = await window.djiBridge.platformLoadComponent('api', apiParam);
-      const apiLoadResult = JSON.parse(apiLoadResultStr);
-      if (apiLoadResult.code !== 0) console.warn(`API Module Load Warning: ${apiLoadResult.message}`);
-      else console.log('API Module Loaded.');
-
-      // 3. Load WS module (Optional - if needed) [cite: 3929]
-      // console.log('Loading WS Module...');
-      // const wsParam = JSON.stringify({ host: djiConfig.websocketUrl, token: djiConfig.sessionToken, connectCallback: 'onWsStatusChange' });
-      // const wsLoadResultStr = await window.djiBridge.platformLoadComponent('ws', wsParam);
-      // Check result...
-
-      // 4. Load Cloud (Thing) Module for MQTT [cite: 567, 3916]
-      console.log('Loading MQTT (Thing) Module...');
-      const thingParam = JSON.stringify({
-        host: djiConfig.mqttHost,
-        username: djiConfig.mqttUsername,
-        password: djiConfig.mqttPassword,
-        connectCallback: 'onMqttStatusChange'
-      });
-      const thingLoadResultStr = await window.djiBridge.platformLoadComponent('thing', thingParam);
-      const thingLoadResult = JSON.parse(thingLoadResultStr);
-      // Note: MQTT connects asynchronously. Use the callback 'onMqttStatusChange' to confirm connection.
-       if (thingLoadResult.code !== 0) console.warn(`MQTT Module Load Warning: ${thingLoadResult.message}`);
-       else console.log('MQTT Module Load Initiated.');
-
-      // --- Set Platform Info ---
-
-      // 5. Set Workspace ID [cite: 573, 3865]
-      console.log('Setting Workspace ID...');
-      const wsIdResultStr = await window.djiBridge.platformSetWorkspaceId(djiConfig.workspaceId);
-      // Check result...
-
-      // 6. Set Platform Info [cite: 573, 3869]
-      console.log('Setting Platform Info...');
-      const infoResultStr = await window.djiBridge.platformSetInformation(
+      addLog('Setting Platform Info...');
+      const platformInfoResult = await window.djiBridge.platformSetInformation(
         djiConfig.platformName,
         djiConfig.workspaceName,
         djiConfig.workspaceDesc
       );
-      // Check result...
-      console.log('DJI Platform Info Set.');
+      addLog(`Platform Info Result: ${JSON.stringify(platformInfoResult)}`);
 
-      // --- Load Optional Feature Modules (Load as needed) --- [cite: 3907]
-      // console.log('Loading Mission Module...');
-      // await window.djiBridge.platformLoadComponent('mission', JSON.stringify({})); //
-      // console.log('Loading Media Module...');
-      // await window.djiBridge.platformLoadComponent('media', JSON.stringify({ autoUploadPhoto: true })); //
-
-      console.log('DJI JSBridge setup appears complete.');
-      setIsPilotLoggedIn(true); // Update UI
+      setIsPilotLoggedIn(true);
+      addLog('DJI Setup completed successfully');
 
     } catch (err: any) {
       const errorMsg = `DJI Setup Error: ${err.message || 'Unknown error'}`;
       addLog(`ERROR: ${errorMsg}`);
       setError(errorMsg);
-      // Consider unloading components on error if appropriate
-      // if (window.djiBridge) {
-      //    await window.djiBridge.platformUnloadComponent('thing');
-      //    await window.djiBridge.platformUnloadComponent('api');
-      // }
-    } finally {
       setIsLoading(false);
     }
   };
@@ -222,13 +183,13 @@ const DjiLoginPage: React.FC = () => {
             addLog('MQTT Connected Successfully!');
             
             // Subscribe to telemetry
-            const subParam = JSON.stringify({
+            const subscribeParams = JSON.stringify({
               topic: 'thing/status/#',
               qos: 0
             });
             
             try {
-              const subResult = await window.djiBridge.thingSubscribe(subParam);
+              const subResult = await window.djiBridge.thingSubscribe(subscribeParams);
               addLog(`Subscription result: ${subResult}`);
             } catch (err: any) {
               addLog(`Subscription error: ${err.message}`);
