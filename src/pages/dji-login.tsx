@@ -42,36 +42,55 @@ const DjiLoginPage: React.FC = () => {
   const { login } = useAuth();
   const router = useRouter();
   const [telemetryData, setTelemetryData] = useState<any>(null);
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
 
   // For testing, we'll skip the DJI Pilot check
   const isDjiPilot = true; // Temporarily force this to true
 
+  // Helper function to add debug logs
+  const addLog = (message: string) => {
+    setDebugLogs(prev => [...prev, `${new Date().toISOString()}: ${message}`]);
+  };
+
   // --- JSBridge Communication Logic ---
   const setupDjiConnection = async (djiConfig: DjiConfig) => {
     setError(null);
-    console.log('Attempting DJI JSBridge setup...');
+    addLog('Attempting DJI JSBridge setup...');
 
-    // Ensure djiBridge is available
     if (typeof window === 'undefined' || !window.djiBridge) {
-      console.error('DJI Bridge is not available!');
+      addLog('ERROR: DJI Bridge is not available!');
       setError('This page must be opened within DJI Pilot 2.');
       setIsLoading(false);
       return;
     }
 
     try {
-      // 1. Verify License [cite: 544, 3905]
-      console.log('Verifying DJI License...');
+      // License verification
+      addLog('Verifying DJI License...');
       const licenseResultStr = await window.djiBridge.platformVerifyLicense(
         djiConfig.appId,
         djiConfig.appKey,
         djiConfig.license
       );
       const licenseResult = JSON.parse(licenseResultStr);
-      if (licenseResult.code !== 0) {
-        throw new Error(`License Verification Failed: ${licenseResult.message} (Code: ${licenseResult.code})`);
-      }
-      console.log('DJI License Verified.');
+      addLog(`License verification result: ${JSON.stringify(licenseResult)}`);
+
+      // MQTT Setup
+      addLog('Setting up MQTT connection...');
+      addLog(`MQTT Host: ${djiConfig.mqttHost}`);
+      addLog(`MQTT Username present: ${!!djiConfig.mqttUsername}`);
+      
+      const thingParam = JSON.stringify({
+        host: djiConfig.mqttHost,
+        username: djiConfig.mqttUsername || '',
+        password: djiConfig.mqttPassword || '',
+        connectCallback: 'onMqttStatusChange',
+        clientId: `web_${Date.now()}`
+      });
+
+      const thingLoadResultStr = await window.djiBridge.platformLoadComponent('thing', thingParam);
+      const thingLoadResult = JSON.parse(thingLoadResultStr);
+      addLog(`MQTT Load Result: ${JSON.stringify(thingLoadResult)}`);
 
       // --- Load Core Modules ---
 
@@ -130,8 +149,9 @@ const DjiLoginPage: React.FC = () => {
       setIsPilotLoggedIn(true); // Update UI
 
     } catch (err: any) {
-      console.error("DJI JSBridge Setup Error:", err);
-      setError(`DJI Setup Error: ${err.message || 'Unknown error'}`);
+      const errorMsg = `DJI Setup Error: ${err.message || 'Unknown error'}`;
+      addLog(`ERROR: ${errorMsg}`);
+      setError(errorMsg);
       // Consider unloading components on error if appropriate
       // if (window.djiBridge) {
       //    await window.djiBridge.platformUnloadComponent('thing');
@@ -193,34 +213,37 @@ const DjiLoginPage: React.FC = () => {
    // --- Setup Global Callbacks ---
    useEffect(() => {
     window.onMqttStatusChange = async (statusStr: string) => {
+      addLog(`MQTT Status Update: ${statusStr}`);
+      try {
         const status = JSON.parse(statusStr);
-        console.log("MQTT Status Callback:", status);
-        // You might update React state based on connection status.code here
-        // status.code == 0 means connected/disconnected notification, check status.data.connectState
-        // status.code != 0 is likely an error during connection attempt
-        if(status.code === 0 && status.data?.connectState === 1) {
-            console.log("MQTT Connected!");
+        
+        if (status.code === 0) {
+          if (status.data?.connectState === 1) {
+            addLog('MQTT Connected Successfully!');
             
-            // Subscribe to telemetry topic
+            // Subscribe to telemetry
             const subParam = JSON.stringify({
-              topic: 'thing/status/#', // Adjust topic based on DJI documentation
+              topic: 'thing/status/#',
               qos: 0
             });
             
             try {
               const subResult = await window.djiBridge.thingSubscribe(subParam);
-              console.log('Subscribed to telemetry:', subResult);
-            } catch (err) {
-              console.error('Failed to subscribe to telemetry:', err);
+              addLog(`Subscription result: ${subResult}`);
+            } catch (err: any) {
+              addLog(`Subscription error: ${err.message}`);
             }
-        } else if (status.code === 0 && status.data?.connectState === 0) {
-             console.log("MQTT Disconnected.");
-             // Maybe reset isPilotLoggedIn state here?
-        } else if (status.code !== 0) {
-             console.error("MQTT Connection Error Callback:", status.message);
-             setError(`MQTT Connection Error: ${status.message}`);
-             setIsPilotLoggedIn(false);
+          } else if (status.data?.connectState === 0) {
+            addLog('MQTT Disconnected');
+          }
+        } else {
+          const errorMsg = `MQTT Error: ${status.message || 'Unknown error'} (Code: ${status.code})`;
+          addLog(`ERROR: ${errorMsg}`);
+          setError(errorMsg);
         }
+      } catch (err: any) {
+        addLog(`Failed to parse MQTT status: ${err.message}`);
+      }
     };
     window.onWsStatusChange = (statusStr: string) => {
         console.log("WebSocket Status Callback:", statusStr);
@@ -228,7 +251,15 @@ const DjiLoginPage: React.FC = () => {
     };
 
     // Add telemetry callback
-    window.onTelemetryChange = handleTelemetryUpdate;
+    window.onTelemetryChange = (dataStr: string) => {
+      addLog(`Received telemetry: ${dataStr.substring(0, 100)}...`);
+      try {
+        const data = JSON.parse(dataStr);
+        setTelemetryData(data);
+      } catch (err: any) {
+        addLog(`Failed to parse telemetry: ${err.message}`);
+      }
+    };
 
     // Cleanup
     return () => {
@@ -237,16 +268,6 @@ const DjiLoginPage: React.FC = () => {
         delete window.onTelemetryChange;
     }
   }, []);
-
-  // Add this function to handle telemetry updates
-  const handleTelemetryUpdate = (dataStr: string) => {
-    try {
-      const data = JSON.parse(dataStr);
-      setTelemetryData(data);
-    } catch (err) {
-      console.error('Failed to parse telemetry data:', err);
-    }
-  };
 
   // --- Render Logic ---
   return (
@@ -297,6 +318,19 @@ const DjiLoginPage: React.FC = () => {
             </button>
           </form>
 
+          {/* Debug Logs Section */}
+          <div className={styles.debugContainer}>
+            <h3>Debug Logs</h3>
+            <div className={styles.logs}>
+              {debugLogs.map((log, index) => (
+                <div key={index} className={styles.logEntry}>
+                  {log}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Telemetry Data Section */}
           {isPilotLoggedIn && telemetryData && (
             <div className={styles.telemetryContainer}>
               <h2>Live Telemetry Data</h2>
