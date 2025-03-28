@@ -166,11 +166,21 @@ const DjiLoginPage: React.FC = () => {
       // Store auth data
       login(user, token);
 
-      // For testing, we'll skip the DJI config and connection setup
+      // Get DJI config and set up connection
+      try {
+        const configResponse = await fetch('/api/dji/config');
+        if (!configResponse.ok) {
+          throw new Error('Failed to fetch DJI configuration');
+        }
+        const djiConfig = await configResponse.json();
+        await setupDjiConnection(djiConfig);
+      } catch (err: any) {
+        console.error("DJI Setup Error:", err);
+        setError(`DJI Setup Error: ${err.message}`);
+      }
+
+      // Remove the router.push('/') to stay on the current page
       setIsPilotLoggedIn(true);
-      
-      // Redirect to home page or dashboard
-      router.push('/');
 
     } catch (err: any) {
       console.error("Login/Setup Error:", err);
