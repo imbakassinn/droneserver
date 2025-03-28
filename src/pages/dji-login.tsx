@@ -86,13 +86,8 @@ const DjiLoginPage: React.FC = () => {
       addLog(`MQTT Host: ${djiConfig.mqttHost}`);
       addLog(`MQTT Username: ${djiConfig.mqttUsername}`);
       
-      // Debug available methods
-      addLog('Available djiBridge methods:');
-      for (const method in window.djiBridge) {
-        addLog(`- ${method}`);
-      }
-      
-      const mqttParams = JSON.stringify({
+      // First, load the Cloud Module for MQTT
+      const cloudParams = JSON.stringify({
         host: djiConfig.mqttHost,
         username: djiConfig.mqttUsername,
         password: djiConfig.mqttPassword,
@@ -101,36 +96,41 @@ const DjiLoginPage: React.FC = () => {
         clientId: `dji_pilot_${Math.random().toString(16).slice(2, 8)}`,
         clean: true,
         keepalive: 60,
-        timeout: 30,
-        protocol: 'mqtt',
-        reconnectPeriod: 1000
+        timeout: 30
       });
 
-      addLog(`MQTT Parameters (excluding password): ${JSON.stringify({
-        ...JSON.parse(mqttParams),
+      addLog(`Cloud Module Parameters (excluding password): ${JSON.stringify({
+        ...JSON.parse(cloudParams),
         password: '***'
       })}`);
 
-      addLog('Attempting to load MQTT component...');
-      const mqttLoadResultStr = await window.djiBridge.platformLoadComponent('thing', mqttParams);
-      addLog(`Raw MQTT Load Result: ${mqttLoadResultStr}`);
+      addLog('Loading Cloud Module...');
+      const cloudLoadResultStr = await window.djiBridge.platformLoadComponent('cloud', cloudParams);
+      addLog(`Raw Cloud Module Load Result: ${cloudLoadResultStr}`);
       
       try {
-        const mqttLoadResult = JSON.parse(mqttLoadResultStr);
-        addLog(`Parsed MQTT Load Result: ${JSON.stringify(mqttLoadResult, null, 2)}`);
+        const cloudLoadResult = JSON.parse(cloudLoadResultStr);
+        addLog(`Parsed Cloud Module Load Result: ${JSON.stringify(cloudLoadResult, null, 2)}`);
 
-        if (mqttLoadResult.code === 0) {
-          addLog('MQTT component loaded, attempting to subscribe...');
+        if (cloudLoadResult.code === 0) {
+          addLog('Cloud Module loaded successfully');
+          
+          // After successful load, try subscribing
           const subscribeParams = JSON.stringify({
             topic: 'thing/#',
             qos: 0
           });
           
-          const subResult = await window.djiBridge.thingSubscribe(subscribeParams);
+          // Use platformLoadComponent for subscription
+          const subResult = await window.djiBridge.platformLoadComponent('cloud.subscribe', subscribeParams);
           addLog(`Subscription attempt result: ${subResult}`);
+        } else {
+          const errorMsg = `Failed to load Cloud Module: ${cloudLoadResult.message || 'Unknown error'} (Code: ${cloudLoadResult.code})`;
+          addLog(`ERROR: ${errorMsg}`);
+          setError(errorMsg);
         }
       } catch (parseErr: any) {
-        addLog(`Failed to parse MQTT result: ${parseErr?.message || 'Unknown parse error'}`);
+        addLog(`Failed to parse Cloud Module result: ${parseErr?.message || 'Unknown parse error'}`);
       }
 
       // Set Workspace Info
@@ -150,7 +150,7 @@ const DjiLoginPage: React.FC = () => {
       addLog('DJI Setup completed successfully');
 
     } catch (err: any) {
-      const errorMsg = `MQTT Setup Error: ${err.message || 'Unknown error'} (${JSON.stringify(err)})`;
+      const errorMsg = `Cloud Module Setup Error: ${err.message || 'Unknown error'} (${JSON.stringify(err)})`;
       addLog(`ERROR: ${errorMsg}`);
       setError(errorMsg);
       setIsLoading(false);
@@ -217,13 +217,14 @@ const DjiLoginPage: React.FC = () => {
           if (status.data?.connectState === 1) {
             addLog('MQTT Connected Successfully!');
             
+            // Try subscribing again after confirmed connection
             const subscribeParams = JSON.stringify({
               topic: 'thing/#',
               qos: 0
             });
             
             try {
-              const subResultStr = await window.djiBridge.thingSubscribe(subscribeParams);
+              const subResultStr = await window.djiBridge.platformLoadComponent('cloud.subscribe', subscribeParams);
               addLog(`Subscription result after connect: ${subResultStr}`);
             } catch (err: any) {
               addLog(`Subscription error after connect: ${err.message || 'Unknown error'}`);
