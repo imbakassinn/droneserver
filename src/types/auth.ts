@@ -14,4 +14,11 @@ export interface LoginCredentials {
 export interface AuthResponse {
   user: User;
   token: string;
+}
+
+export interface CreateUserRequest {
+  username: string;
+  password: string;
+  role: User['role'];
+  workspaceName: string;
 } 
