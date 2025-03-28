@@ -84,20 +84,34 @@ const DjiLoginPage: React.FC = () => {
       // MQTT Setup
       addLog('Setting up MQTT connection...');
       addLog(`MQTT Host: ${djiConfig.mqttHost}`);
-      addLog(`MQTT Username present: ${!!djiConfig.mqttUsername}`);
+      addLog(`MQTT Username: ${djiConfig.mqttUsername}`);
       
       const mqttParams = JSON.stringify({
         host: djiConfig.mqttHost,
-        username: djiConfig.mqttUsername || '',
-        password: djiConfig.mqttPassword || '',
+        username: djiConfig.mqttUsername,
+        password: djiConfig.mqttPassword,
         connectCallback: 'onMqttStatusChange',
-        clientId: `web_${Date.now()}`
+        clientId: `dji_web_${Date.now()}`,
+        clean: true,
+        keepalive: 60,
+        timeout: 30
       });
+
+      addLog('MQTT Parameters (excluding password):', JSON.stringify({
+        ...JSON.parse(mqttParams),
+        password: '***'
+      }));
 
       addLog('Attempting to load MQTT component...');
       const mqttLoadResultStr = await window.djiBridge.platformLoadComponent('thing', mqttParams);
-      const mqttLoadResult = JSON.parse(mqttLoadResultStr);
-      addLog(`MQTT Load Result: ${JSON.stringify(mqttLoadResult)}`);
+      addLog(`Raw MQTT Load Result: ${mqttLoadResultStr}`);
+      
+      try {
+        const mqttLoadResult = JSON.parse(mqttLoadResultStr);
+        addLog(`Parsed MQTT Load Result: ${JSON.stringify(mqttLoadResult, null, 2)}`);
+      } catch (parseErr) {
+        addLog(`Failed to parse MQTT result: ${parseErr.message}`);
+      }
 
       // Set Workspace Info
       addLog('Setting Workspace ID...');
@@ -116,7 +130,7 @@ const DjiLoginPage: React.FC = () => {
       addLog('DJI Setup completed successfully');
 
     } catch (err: any) {
-      const errorMsg = `DJI Setup Error: ${err.message || 'Unknown error'}`;
+      const errorMsg = `MQTT Setup Error: ${err.message || 'Unknown error'} (${JSON.stringify(err)})`;
       addLog(`ERROR: ${errorMsg}`);
       setError(errorMsg);
       setIsLoading(false);
@@ -174,9 +188,10 @@ const DjiLoginPage: React.FC = () => {
    // --- Setup Global Callbacks ---
    useEffect(() => {
     window.onMqttStatusChange = async (statusStr: string) => {
-      addLog(`MQTT Status Update: ${statusStr}`);
+      addLog(`Raw MQTT Status Update: ${statusStr}`);
       try {
         const status = JSON.parse(statusStr);
+        addLog(`Parsed MQTT Status: ${JSON.stringify(status, null, 2)}`);
         
         if (status.code === 0) {
           if (status.data?.connectState === 1) {
@@ -184,18 +199,26 @@ const DjiLoginPage: React.FC = () => {
             
             // Subscribe to telemetry
             const subscribeParams = JSON.stringify({
-              topic: 'thing/status/#',
+              topic: 'thing/product/1581F5BKB23C900P018N/osd',
               qos: 0
             });
             
+            addLog(`Attempting to subscribe with params: ${subscribeParams}`);
             try {
-              const subResult = await window.djiBridge.thingSubscribe(subscribeParams);
-              addLog(`Subscription result: ${subResult}`);
+              const subResultStr = await window.djiBridge.thingSubscribe(subscribeParams);
+              addLog(`Raw subscription result: ${subResultStr}`);
+              try {
+                const subResult = JSON.parse(subResultStr);
+                addLog(`Parsed subscription result: ${JSON.stringify(subResult, null, 2)}`);
+              } catch (parseErr) {
+                addLog(`Failed to parse subscription result: ${parseErr.message}`);
+              }
             } catch (err: any) {
-              addLog(`Subscription error: ${err.message}`);
+              addLog(`Subscription error: ${err.message || 'Unknown error'} (${JSON.stringify(err)})`);
             }
           } else if (status.data?.connectState === 0) {
             addLog('MQTT Disconnected');
+            setError('MQTT Disconnected');
           }
         } else {
           const errorMsg = `MQTT Error: ${status.message || 'Unknown error'} (Code: ${status.code})`;
@@ -203,7 +226,9 @@ const DjiLoginPage: React.FC = () => {
           setError(errorMsg);
         }
       } catch (err: any) {
-        addLog(`Failed to parse MQTT status: ${err.message}`);
+        const errorMsg = `Failed to parse MQTT status: ${err.message || 'Unknown error'} (${JSON.stringify(err)})`;
+        addLog(`ERROR: ${errorMsg}`);
+        setError(errorMsg);
       }
     };
     window.onWsStatusChange = (statusStr: string) => {
