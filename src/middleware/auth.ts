@@ -1,5 +1,5 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { verify } from 'jsonwebtoken';
+import { verify, JwtPayload } from 'jsonwebtoken';
 
 export function authMiddleware(handler: Function) {
   return async (req: NextApiRequest, res: NextApiResponse) => {
@@ -10,7 +10,7 @@ export function authMiddleware(handler: Function) {
         return res.status(401).json({ error: 'No token provided' });
       }
 
-      const decoded = verify(token, process.env.JWT_SECRET!);
+      const decoded = verify(token, process.env.JWT_SECRET!) as JwtPayload;
       req.user = decoded;
       
       return handler(req, res);
