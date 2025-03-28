@@ -91,10 +91,14 @@ const DjiLoginPage: React.FC = () => {
         username: djiConfig.mqttUsername,
         password: djiConfig.mqttPassword,
         connectCallback: 'onMqttStatusChange',
-        clientId: `dji_web_${Date.now()}`,
+        messageCallback: 'onTelemetryChange',
+        clientId: `dji_pilot_${Math.random().toString(16).slice(2, 8)}`,
         clean: true,
         keepalive: 60,
-        timeout: 30
+        timeout: 30,
+        protocol: 'mqtt',
+        port: 1883,
+        reconnectPeriod: 1000
       });
 
       addLog(`MQTT Parameters (excluding password): ${JSON.stringify({
@@ -109,6 +113,17 @@ const DjiLoginPage: React.FC = () => {
       try {
         const mqttLoadResult = JSON.parse(mqttLoadResultStr);
         addLog(`Parsed MQTT Load Result: ${JSON.stringify(mqttLoadResult, null, 2)}`);
+
+        if (mqttLoadResult.code === 0) {
+          addLog('MQTT component loaded, attempting to subscribe...');
+          const subscribeParams = JSON.stringify({
+            topic: 'thing/#',
+            qos: 0
+          });
+          
+          const subResult = await window.djiBridge.thingSubscribe(subscribeParams);
+          addLog(`Subscription attempt result: ${subResult}`);
+        }
       } catch (parseErr: any) {
         addLog(`Failed to parse MQTT result: ${parseErr?.message || 'Unknown parse error'}`);
       }
@@ -197,24 +212,16 @@ const DjiLoginPage: React.FC = () => {
           if (status.data?.connectState === 1) {
             addLog('MQTT Connected Successfully!');
             
-            // Subscribe to telemetry
             const subscribeParams = JSON.stringify({
-              topic: 'thing/product/1581F5BKB23C900P018N/osd',
+              topic: 'thing/#',
               qos: 0
             });
             
-            addLog(`Attempting to subscribe with params: ${subscribeParams}`);
             try {
               const subResultStr = await window.djiBridge.thingSubscribe(subscribeParams);
-              addLog(`Raw subscription result: ${subResultStr}`);
-              try {
-                const subResult = JSON.parse(subResultStr);
-                addLog(`Parsed subscription result: ${JSON.stringify(subResult, null, 2)}`);
-              } catch (parseErr: any) {
-                addLog(`Failed to parse subscription result: ${parseErr?.message || 'Unknown parse error'}`);
-              }
+              addLog(`Subscription result after connect: ${subResultStr}`);
             } catch (err: any) {
-              addLog(`Subscription error: ${err.message || 'Unknown error'} (${JSON.stringify(err)})`);
+              addLog(`Subscription error after connect: ${err.message || 'Unknown error'}`);
             }
           } else if (status.data?.connectState === 0) {
             addLog('MQTT Disconnected');
@@ -226,31 +233,25 @@ const DjiLoginPage: React.FC = () => {
           setError(errorMsg);
         }
       } catch (err: any) {
-        const errorMsg = `Failed to parse MQTT status: ${err.message || 'Unknown error'} (${JSON.stringify(err)})`;
+        const errorMsg = `Failed to parse MQTT status: ${err.message || 'Unknown error'}`;
         addLog(`ERROR: ${errorMsg}`);
         setError(errorMsg);
       }
     };
-    window.onWsStatusChange = (statusStr: string) => {
-        console.log("WebSocket Status Callback:", statusStr);
-        // Handle WS connection changes if needed
-    };
 
-    // Add telemetry callback
     window.onTelemetryChange = (dataStr: string) => {
-      addLog(`Received telemetry: ${dataStr.substring(0, 100)}...`);
+      addLog(`Received raw message: ${dataStr}`);
       try {
         const data = JSON.parse(dataStr);
+        addLog(`Parsed message: ${JSON.stringify(data, null, 2)}`);
         setTelemetryData(data);
       } catch (err: any) {
-        addLog(`Failed to parse telemetry: ${err.message || 'Unknown parse error'}`);
+        addLog(`Failed to parse message: ${err.message || 'Unknown parse error'}`);
       }
     };
 
-    // Cleanup
     return () => {
         delete window.onMqttStatusChange;
-        delete window.onWsStatusChange;
         delete window.onTelemetryChange;
     }
   }, []);
