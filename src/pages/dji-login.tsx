@@ -104,6 +104,13 @@ const DjiLoginPage: React.FC = () => {
         password: '***'
       })}`);
 
+      // Try publishing a test message first to verify MQTT server connection
+      const testPublishParams = JSON.stringify({
+        topic: 'thing/test',
+        message: 'Test message from DJI Pilot',
+        qos: 0
+      });
+      
       addLog('Loading Cloud Module...');
       const cloudLoadResultStr = await window.djiBridge.platformLoadComponent('cloud', cloudParams);
       addLog(`Raw Cloud Module Load Result: ${cloudLoadResultStr}`);
@@ -115,15 +122,26 @@ const DjiLoginPage: React.FC = () => {
         if (cloudLoadResult.code === 0) {
           addLog('Cloud Module loaded successfully');
           
-          // After successful load, try subscribing
-          const subscribeParams = JSON.stringify({
-            topic: 'thing/#',
-            qos: 0
-          });
+          // Try publishing test message
+          const publishResult = await window.djiBridge.platformLoadComponent('cloud.publish', testPublishParams);
+          addLog(`Test publish result: ${publishResult}`);
           
-          // Use platformLoadComponent for subscription
-          const subResult = await window.djiBridge.platformLoadComponent('cloud.subscribe', subscribeParams);
-          addLog(`Subscription attempt result: ${subResult}`);
+          // Subscribe to multiple topics to ensure we catch messages
+          const topics = [
+            'thing/#',
+            'thing/product/#',
+            'thing/test'
+          ];
+          
+          for (const topic of topics) {
+            const subscribeParams = JSON.stringify({
+              topic,
+              qos: 0
+            });
+            
+            const subResult = await window.djiBridge.platformLoadComponent('cloud.subscribe', subscribeParams);
+            addLog(`Subscription attempt result for ${topic}: ${subResult}`);
+          }
         } else {
           const errorMsg = `Failed to load Cloud Module: ${cloudLoadResult.message || 'Unknown error'} (Code: ${cloudLoadResult.code})`;
           addLog(`ERROR: ${errorMsg}`);
@@ -215,19 +233,20 @@ const DjiLoginPage: React.FC = () => {
         
         if (status.code === 0) {
           if (status.data?.connectState === 1) {
-            addLog('MQTT Connected Successfully!');
+            addLog('MQTT Connected Successfully! Will try to publish test message...');
             
-            // Try subscribing again after confirmed connection
-            const subscribeParams = JSON.stringify({
-              topic: 'thing/#',
+            // Try publishing a test message on successful connection
+            const testPublishParams = JSON.stringify({
+              topic: 'thing/test',
+              message: 'Test message after connection',
               qos: 0
             });
             
             try {
-              const subResultStr = await window.djiBridge.platformLoadComponent('cloud.subscribe', subscribeParams);
-              addLog(`Subscription result after connect: ${subResultStr}`);
+              const pubResult = await window.djiBridge.platformLoadComponent('cloud.publish', testPublishParams);
+              addLog(`Test publish after connect result: ${pubResult}`);
             } catch (err: any) {
-              addLog(`Subscription error after connect: ${err.message || 'Unknown error'}`);
+              addLog(`Publish error after connect: ${err.message || 'Unknown error'}`);
             }
           } else if (status.data?.connectState === 0) {
             addLog('MQTT Disconnected');
@@ -246,13 +265,13 @@ const DjiLoginPage: React.FC = () => {
     };
 
     window.onTelemetryChange = (dataStr: string) => {
-      addLog(`Received raw message: ${dataStr}`);
+      addLog(`Received raw telemetry message: ${dataStr}`);
       try {
         const data = JSON.parse(dataStr);
-        addLog(`Parsed message: ${JSON.stringify(data, null, 2)}`);
+        addLog(`Parsed telemetry message: ${JSON.stringify(data, null, 2)}`);
         setTelemetryData(data);
       } catch (err: any) {
-        addLog(`Failed to parse message: ${err.message || 'Unknown parse error'}`);
+        addLog(`Failed to parse telemetry: ${err.message || 'Unknown parse error'}`);
       }
     };
 
