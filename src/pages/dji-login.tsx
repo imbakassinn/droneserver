@@ -86,8 +86,14 @@ const DjiLoginPage: React.FC = () => {
       addLog(`MQTT Host: ${djiConfig.mqttHost}`);
       addLog(`MQTT Username: ${djiConfig.mqttUsername}`);
       
+      // Debug available methods
+      addLog('Available djiBridge methods:');
+      for (const method in window.djiBridge) {
+        addLog(`- ${method}`);
+      }
+      
       const mqttParams = JSON.stringify({
-        host: djiConfig.mqttHost,  // The host already includes the port
+        host: djiConfig.mqttHost,
         username: djiConfig.mqttUsername,
         password: djiConfig.mqttPassword,
         connectCallback: 'onMqttStatusChange',
@@ -98,7 +104,6 @@ const DjiLoginPage: React.FC = () => {
         timeout: 30,
         protocol: 'mqtt',
         reconnectPeriod: 1000
-        // Removed port: 1883 since it's in the host URL
       });
 
       addLog(`MQTT Parameters (excluding password): ${JSON.stringify({
