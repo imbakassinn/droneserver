@@ -87,7 +87,7 @@ const DjiLoginPage: React.FC = () => {
       addLog(`MQTT Username: ${djiConfig.mqttUsername}`);
       
       const mqttParams = JSON.stringify({
-        host: djiConfig.mqttHost,
+        host: djiConfig.mqttHost,  // The host already includes the port
         username: djiConfig.mqttUsername,
         password: djiConfig.mqttPassword,
         connectCallback: 'onMqttStatusChange',
@@ -97,8 +97,8 @@ const DjiLoginPage: React.FC = () => {
         keepalive: 60,
         timeout: 30,
         protocol: 'mqtt',
-        port: 1883,
         reconnectPeriod: 1000
+        // Removed port: 1883 since it's in the host URL
       });
 
       addLog(`MQTT Parameters (excluding password): ${JSON.stringify({

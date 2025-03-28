@@ -20,8 +20,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Generate a valid UUID for workspace ID if not provided in env
     const workspaceId = process.env.DJI_WORKSPACE_ID || uuidv4();
 
-    // Format MQTT host with protocol and port
-    const mqttHost = 'mqtt://89.17.150.216:1883';  // Your remote MQTT server
+    // Format MQTT host - already includes port
+    const mqttHost = 'mqtt://89.17.150.216:1883';  // Port is included here
 
     const config = {
       appId: process.env.DJI_APP_ID,
