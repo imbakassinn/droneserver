@@ -100,62 +100,142 @@ const DjiLoginPage: React.FC = () => {
       window.connectCallback = function(status) {
         addLog(`MQTT Connection Status: ${status}`);
         
-        // If connected successfully
-        if (status) {
-          addLog('MQTT Connected! Will attempt to publish test message...');
-          
-          // Wait a moment before publishing
-          setTimeout(async function() {
+        try {
+          // Parse the status if it's a string
+          let statusObj = status;
+          if (typeof status === 'string') {
             try {
-              // Get the device SN for topic construction
-              const deviceSn = window.djiBridge.platformGetAircraftSN();
-              addLog(`Device SN: ${deviceSn}`);
-              
-              // Use the correct topic format for DJI
-              const topic = `thing/product/${deviceSn || 'default'}/property`;
-              
-              const publishParams = JSON.stringify({
-                topic: topic,
-                message: JSON.stringify({
-                  id: Date.now().toString(),
-                  params: {
-                    test: true,
-                    timestamp: Date.now()
-                  }
-                }),
-                qos: 0
-              });
-              
-              addLog(`Publishing with params: ${publishParams}`);
-              
-              // Try different methods for publishing
-              const methods = ['thing.property.post', 'thing.publish', 'thing.post'];
-              
-              for (const method of methods) {
-                try {
-                  addLog(`Trying to publish using ${method}...`);
-                  const publishResult = await window.djiBridge.platformLoadComponent(method, publishParams);
-                  addLog(`${method} result: ${publishResult}`);
-                } catch (err) {
-                  addLog(`Failed with ${method}: ${err}`);
-                }
-                
-                // Wait between attempts
-                await new Promise(resolve => setTimeout(resolve, 1000));
-              }
-            } catch (err) {
-              addLog(`Error during publish: ${err}`);
+              statusObj = JSON.parse(status);
+              addLog(`Parsed status: ${JSON.stringify(statusObj, null, 2)}`);
+            } catch (e) {
+              // If it's not JSON, keep the original value
             }
-          }, 2000);
-        } else {
-          addLog('MQTT Disconnected');
+          }
+          
+          // Check various possible connection status formats
+          const isConnected = 
+            status === true || 
+            status === 'true' || 
+            (statusObj && statusObj.code === 0) ||
+            (statusObj && statusObj.connected === true) ||
+            (statusObj && statusObj.data && statusObj.data.connectState === 1);
+          
+          if (isConnected) {
+            addLog('MQTT Connected! Will attempt to publish test message...');
+            
+            // Wait a moment before publishing
+            setTimeout(async function() {
+              try {
+                // Get the device SN for topic construction
+                const deviceSn = window.djiBridge.platformGetAircraftSN();
+                addLog(`Device SN: ${deviceSn}`);
+                
+                // Get the remote controller SN as fallback
+                const rcSn = window.djiBridge.platformGetRemoteControllerSN();
+                addLog(`Remote Controller SN: ${rcSn}`);
+                
+                // Use the correct SN for topic construction
+                const sn = deviceSn || rcSn || '4LFCLC7006N944'; // Use the SN from your logs as fallback
+                
+                // Try publishing to the topics we've seen in the logs
+                const topics = [
+                  `thing/product/${sn}/property`,
+                  `thing/product/${sn}/state`,
+                  `sys/product/${sn}/status`
+                ];
+                
+                for (const topic of topics) {
+                  const publishParams = JSON.stringify({
+                    topic: topic,
+                    message: JSON.stringify({
+                      id: Date.now().toString(),
+                      bid: generateUUID(),
+                      tid: generateUUID(),
+                      timestamp: Date.now(),
+                      method: "custom_test",
+                      data: {
+                        test: true,
+                        message: "Test from DJI Bridge",
+                        timestamp: Date.now()
+                      }
+                    }),
+                    qos: 0
+                  });
+                  
+                  addLog(`Publishing to topic: ${topic}`);
+                  addLog(`With params: ${publishParams}`);
+                  
+                  // Try different methods for publishing
+                  const methods = ['thing.property.post', 'thing.publish', 'thing.post', 'thing.event.post'];
+                  
+                  for (const method of methods) {
+                    try {
+                      addLog(`Trying to publish using ${method}...`);
+                      const publishResult = await window.djiBridge.platformLoadComponent(method, publishParams);
+                      addLog(`${method} result: ${publishResult}`);
+                    } catch (err) {
+                      addLog(`Failed with ${method}: ${err}`);
+                    }
+                    
+                    // Wait between attempts
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                  }
+                }
+              } catch (err) {
+                addLog(`Error during publish: ${err}`);
+              }
+            }, 2000);
+          } else {
+            addLog('MQTT Disconnected or connection failed');
+            
+            // Try reconnecting after a delay
+            setTimeout(async () => {
+              addLog('Attempting to reconnect MQTT...');
+              try {
+                const reconnectParams = JSON.stringify({
+                  host: '89.17.150.216',
+                  port: 1883,
+                  username: 'droneuser',
+                  password: 'Jotunheimar',
+                  connectCallback: 'connectCallback',
+                  messageCallback: 'onTelemetryChange',
+                  clientId: `dji_pilot_${Date.now()}`, // Generate a new client ID
+                  clean: true,
+                  protocol: 'tcp'
+                });
+                
+                addLog(`Reconnecting with params: ${reconnectParams}`);
+                const reconnectResult = await window.djiBridge.platformLoadComponent('thing', reconnectParams);
+                addLog(`Reconnect result: ${reconnectResult}`);
+              } catch (err) {
+                addLog(`Reconnect error: ${err}`);
+              }
+            }, 5000);
+          }
+        } catch (err) {
+          addLog(`Error in connectCallback: ${err}`);
         }
       };
 
       // Define the message callback
       window.onTelemetryChange = function(message) {
         addLog(`Received MQTT message: ${message}`);
+        try {
+          const parsedMessage = JSON.parse(message);
+          addLog(`Parsed message: ${JSON.stringify(parsedMessage, null, 2)}`);
+        } catch (e) {
+          addLog(`Could not parse message as JSON: ${e}`);
+        }
       };
+
+      // Helper function to generate UUID for bid and tid
+      function generateUUID() {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+          const r = Math.random() * 16 | 0;
+          const v = c === 'x' ? r : (r & 0x3 | 0x8);
+          return v.toString(16);
+        });
+      }
 
       // Set up the MQTT connection with the hardcoded parameters
       const cloudParams = JSON.stringify({
@@ -163,7 +243,7 @@ const DjiLoginPage: React.FC = () => {
         port: 1883,
         username: 'droneuser',
         password: 'Jotunheimar',
-        connectCallback: 'connectCallback',  // Use the global function name
+        connectCallback: 'connectCallback',
         messageCallback: 'onTelemetryChange',
         clientId: `dji_pilot_${Date.now()}`,
         clean: true,
@@ -172,12 +252,11 @@ const DjiLoginPage: React.FC = () => {
 
       addLog(`Loading Thing Module with params: ${cloudParams}`);
 
-      // Load the 'thing' component instead of 'cloud'
+      // Try loading both 'thing' and 'cloud' modules
       try {
         const thingLoadResultStr = await window.djiBridge.platformLoadComponent('thing', cloudParams);
         addLog(`Thing Module Load Result: ${thingLoadResultStr}`);
         
-        // Parse the result if possible
         try {
           const thingLoadResult = JSON.parse(thingLoadResultStr);
           addLog(`Parsed Thing Load Result: ${JSON.stringify(thingLoadResult, null, 2)}`);
@@ -187,11 +266,42 @@ const DjiLoginPage: React.FC = () => {
       } catch (e) {
         addLog(`Error loading thing module: ${e}`);
         
-        // Fall back to cloud module if thing module fails
-        addLog('Falling back to cloud module...');
-        const cloudLoadResultStr = await window.djiBridge.platformLoadComponent('cloud', cloudParams);
-        addLog(`Cloud Module Load Result: ${cloudLoadResultStr}`);
+        // Try cloud module if thing module fails
+        try {
+          addLog('Trying cloud module...');
+          const cloudLoadResultStr = await window.djiBridge.platformLoadComponent('cloud', cloudParams);
+          addLog(`Cloud Module Load Result: ${cloudLoadResultStr}`);
+        } catch (e) {
+          addLog(`Error loading cloud module: ${e}`);
+        }
       }
+
+      // Also try subscribing to the topics we've seen in the logs
+      setTimeout(async () => {
+        const topics = [
+          'sys/product/+/status',
+          'thing/product/+/state',
+          'thing/product/+/property'
+        ];
+        
+        for (const topic of topics) {
+          try {
+            addLog(`Subscribing to topic: ${topic}`);
+            const subscribeParams = JSON.stringify({
+              topic: topic,
+              qos: 0
+            });
+            
+            const subscribeResult = await window.djiBridge.platformLoadComponent('thing.subscribe', subscribeParams);
+            addLog(`Subscribe result for ${topic}: ${subscribeResult}`);
+          } catch (err) {
+            addLog(`Subscribe error for ${topic}: ${err}`);
+          }
+          
+          // Wait between subscribes
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }, 3000);
 
       // Set Workspace Info
       addLog('Setting Workspace ID...');
