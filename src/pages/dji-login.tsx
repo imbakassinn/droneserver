@@ -112,6 +112,63 @@ const DjiLoginPage: React.FC = () => {
         protocol: 'tcp'
       });
 
+      // Define the callback functions in the global scope before loading the module
+      window.onMqttStatusChange = (status) => {
+        addLog(`MQTT Status Change: ${status}`);
+        try {
+          const statusObj = JSON.parse(status);
+          addLog(`Parsed MQTT Status: ${JSON.stringify(statusObj, null, 2)}`);
+          
+          // If connected successfully
+          if (statusObj.code === 0 && statusObj.data?.connectState === 1) {
+            addLog('MQTT Connected! Will attempt to publish test message...');
+            
+            // Try publishing with a simple topic
+            setTimeout(async () => {
+              try {
+                const simplePublishParams = JSON.stringify({
+                  topic: 'test',  // Use a very simple topic
+                  message: 'Test from DJI Bridge',
+                  qos: 0
+                });
+                
+                addLog(`Attempting to publish with params: ${simplePublishParams}`);
+                
+                // Try different component names for publishing
+                const componentNames = ['cloud.publish', 'cloud.send', 'thing.publish', 'thing.send'];
+                
+                for (const component of componentNames) {
+                  try {
+                    addLog(`Trying to publish using ${component}...`);
+                    const publishResult = await window.djiBridge.platformLoadComponent(component, simplePublishParams);
+                    addLog(`${component} result: ${publishResult}`);
+                  } catch (err) {
+                    addLog(`Failed with ${component}: ${err}`);
+                  }
+                  
+                  // Wait between attempts
+                  await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+              } catch (err) {
+                addLog(`Error during publish attempts: ${err}`);
+              }
+            }, 2000); // Wait 2 seconds after connection before publishing
+          }
+        } catch (e) {
+          addLog(`Error parsing MQTT status: ${e}`);
+        }
+      };
+
+      window.onTelemetryChange = (message) => {
+        addLog(`Received MQTT message: ${message}`);
+        try {
+          const parsedMessage = JSON.parse(message);
+          addLog(`Parsed message: ${JSON.stringify(parsedMessage, null, 2)}`);
+        } catch (e) {
+          addLog(`Could not parse message as JSON: ${e}`);
+        }
+      };
+
       addLog('Loading Cloud Module...');
       const cloudLoadResultStr = await window.djiBridge.platformLoadComponent('cloud', cloudParams);
       addLog(`Raw Cloud Module Load Result: ${cloudLoadResultStr}`);
