@@ -84,11 +84,6 @@ const DjiLoginPage: React.FC = () => {
       // MQTT Setup
       addLog('Setting up MQTT connection...');
       
-      // Log available methods
-      addLog('Available DJI Bridge methods:');
-      for (const method in window.djiBridge) {
-        addLog(`- ${method}`);
-      }
       
       // Try getting device info first
       try {
