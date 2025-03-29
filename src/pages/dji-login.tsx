@@ -97,12 +97,10 @@ const DjiLoginPage: React.FC = () => {
       }
 
       // Define the callback function in the global scope BEFORE loading the module
-      window.connectCallback = function(status) {
+      window.connectCallback = function(status: any) {
         addLog(`MQTT Connection Status: ${status}`);
         
         try {
-          // Parse the status if it's a string
-          let statusObj = status;
           let isConnected = false;
           
           if (typeof status === 'boolean') {
@@ -114,14 +112,20 @@ const DjiLoginPage: React.FC = () => {
               isConnected = true;
             } else {
               try {
-                statusObj = JSON.parse(status);
-                addLog(`Parsed status: ${JSON.stringify(statusObj, null, 2)}`);
+                const parsedStatus = JSON.parse(status);
+                addLog(`Parsed status: ${JSON.stringify(parsedStatus, null, 2)}`);
                 
                 // Check if the parsed object indicates a successful connection
-                isConnected = 
-                  (statusObj && statusObj.code === 0) ||
-                  (statusObj && statusObj.connected === true) ||
-                  (statusObj && statusObj.data && statusObj.data.connectState === 1);
+                if (typeof parsedStatus === 'object' && parsedStatus !== null) {
+                  isConnected = 
+                    ('code' in parsedStatus && parsedStatus.code === 0) ||
+                    ('connected' in parsedStatus && parsedStatus.connected === true) ||
+                    ('data' in parsedStatus && 
+                     typeof parsedStatus.data === 'object' && 
+                     parsedStatus.data !== null && 
+                     'connectState' in parsedStatus.data && 
+                     parsedStatus.data.connectState === 1);
+                }
               } catch (e) {
                 // If it's not valid JSON, assume disconnected
                 addLog(`Error parsing status: ${e}`);
@@ -130,9 +134,13 @@ const DjiLoginPage: React.FC = () => {
           } else if (typeof status === 'object' && status !== null) {
             // If status is already an object, check its properties
             isConnected = 
-              (status.code === 0) ||
-              (status.connected === true) ||
-              (status.data && status.data.connectState === 1);
+              ('code' in status && status.code === 0) ||
+              ('connected' in status && status.connected === true) ||
+              ('data' in status && 
+               typeof status.data === 'object' && 
+               status.data !== null && 
+               'connectState' in status.data && 
+               status.data.connectState === 1);
           }
           
           if (isConnected) {
@@ -233,7 +241,7 @@ const DjiLoginPage: React.FC = () => {
       };
 
       // Define the message callback
-      window.onTelemetryChange = function(message) {
+      window.onTelemetryChange = function(message: any) {
         addLog(`Received MQTT message: ${message}`);
         try {
           const parsedMessage = JSON.parse(message);
