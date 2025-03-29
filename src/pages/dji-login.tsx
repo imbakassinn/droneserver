@@ -29,6 +29,7 @@ declare global {
     onWsStatusChange?: (status: string) => void;
     onTelemetryChange?: (dataStr: string) => void;
     connectCallback?: (status: boolean) => void;
+    onTelemetryUpdate?: (telemetry: any) => void;
     // Add other callbacks if needed
   }
 }
@@ -108,139 +109,147 @@ const DjiLoginPage: React.FC = () => {
       window.connectCallback = function(status: any) {
         addLog(`MQTT Connection Status: ${status}`);
         
-        // Even if connection status is false, we'll try to request telemetry
-        // since we're seeing messages from the drone
+        // Even if we get a false connection status, we'll try to work with what we have
         setTimeout(async function() {
           try {
-            // Get the device SNs from the logs
-            const aircraftSn = '1581F5BKB23C900F018N';  // From your logs
-            const gatewaySn = '4LFCLC7006N944';         // From your logs
-            
-            addLog(`Using aircraft SN: ${aircraftSn}, gateway SN: ${gatewaySn}`);
-            
-            // Try publishing directly to the MQTT broker using the mosquitto_pub format
-            // This bypasses the DJI Bridge and sends commands directly to the broker
-            
-            // First, let's try to send a command to the gateway to request OSD data
+            // First, let's check what components are available
             try {
-              const directPublishParams = JSON.stringify({
-                topic: `sys/product/${gatewaySn}/cmd`,
-                message: JSON.stringify({
-                  tid: generateUUID(),
-                  bid: generateUUID(),
-                  timestamp: Date.now(),
-                  method: "osd.config",
-                  data: {
-                    frequency: 5,  // 5Hz update rate
-                    enable: true
-                  }
-                }),
-                qos: 1
-              });
-              
-              // Try different methods to publish
-              const publishMethods = [
-                'thing.publish',
-                'thing.cmd.send',
-                'cloud.publish',
-                'mqtt.publish'
-              ];
-              
-              for (const method of publishMethods) {
-                try {
-                  addLog(`Trying to publish using ${method}...`);
-                  const publishResult = await window.djiBridge.platformLoadComponent(method, directPublishParams);
-                  addLog(`${method} result: ${publishResult}`);
-                } catch (err) {
-                  addLog(`Failed with ${method}: ${err}`);
-                }
-                
-                // Wait between attempts
-                await new Promise(resolve => setTimeout(resolve, 1000));
-              }
+              const componentList = await window.djiBridge.platformGetComponentList();
+              addLog(`Available components: ${componentList}`);
             } catch (err) {
-              addLog(`Error during direct publish: ${err}`);
+              addLog(`Error getting component list: ${err}`);
             }
             
-            // Try to send a command to the aircraft through the gateway
+            // Try to get the aircraft SN directly
             try {
-              const aircraftCmdParams = JSON.stringify({
-                topic: `sys/product/${gatewaySn}/cmd`,
-                message: JSON.stringify({
-                  tid: generateUUID(),
-                  bid: generateUUID(),
-                  timestamp: Date.now(),
-                  method: "thing.command.invoke",
-                  data: {
-                    sn: aircraftSn,
-                    command: "osd.get",
-                    params: {}
-                  }
-                }),
-                qos: 1
-              });
-              
-              const aircraftCmdResult = await window.djiBridge.platformLoadComponent('thing.cmd.send', aircraftCmdParams);
-              addLog(`Aircraft command result: ${aircraftCmdResult}`);
+              const aircraftSn = await window.djiBridge.platformGetAircraftSN();
+              addLog(`Aircraft SN: ${aircraftSn}`);
             } catch (err) {
-              addLog(`Error sending aircraft command: ${err}`);
+              addLog(`Error getting aircraft SN: ${err}`);
             }
             
-            // Try to request specific properties from the aircraft
+            // Try to get the remote controller SN
             try {
-              const propertiesParams = JSON.stringify({
-                topic: `sys/product/${gatewaySn}/cmd`,
-                message: JSON.stringify({
-                  tid: generateUUID(),
-                  bid: generateUUID(),
-                  timestamp: Date.now(),
-                  method: "thing.property.get",
-                  data: {
-                    sn: aircraftSn,
-                    properties: [
-                      "latitude", "longitude", "altitude", "height",
-                      "home_latitude", "home_longitude", "velocity_x", "velocity_y", "velocity_z",
-                      "pitch", "roll", "yaw", "battery_percent"
-                    ]
-                  }
-                }),
-                qos: 1
-              });
-              
-              const propertiesResult = await window.djiBridge.platformLoadComponent('thing.cmd.send', propertiesParams);
-              addLog(`Properties request result: ${propertiesResult}`);
+              const rcSn = await window.djiBridge.platformGetRemoteControllerSN();
+              addLog(`Remote Controller SN: ${rcSn}`);
             } catch (err) {
-              addLog(`Error requesting properties: ${err}`);
+              addLog(`Error getting RC SN: ${err}`);
             }
             
-            // Try to enable live streaming for the aircraft
+            // Try to get the device type
             try {
-              const liveStreamParams = JSON.stringify({
-                topic: `sys/product/${gatewaySn}/cmd`,
-                message: JSON.stringify({
-                  tid: generateUUID(),
-                  bid: generateUUID(),
-                  timestamp: Date.now(),
-                  method: "thing.service.invoke",
-                  data: {
-                    sn: aircraftSn,
-                    service: "live_streaming",
-                    params: {
-                      enable: true
-                    }
-                  }
-                }),
-                qos: 1
-              });
-              
-              const liveStreamResult = await window.djiBridge.platformLoadComponent('thing.cmd.send', liveStreamParams);
-              addLog(`Live streaming request result: ${liveStreamResult}`);
+              const deviceType = await window.djiBridge.platformGetDeviceType();
+              addLog(`Device Type: ${deviceType}`);
             } catch (err) {
-              addLog(`Error requesting live streaming: ${err}`);
+              addLog(`Error getting device type: ${err}`);
+            }
+            
+            // Try to get the firmware version
+            try {
+              const firmwareVersion = await window.djiBridge.platformGetFirmwareVersion();
+              addLog(`Firmware Version: ${firmwareVersion}`);
+            } catch (err) {
+              addLog(`Error getting firmware version: ${err}`);
+            }
+            
+            // Try to get the app version
+            try {
+              const appVersion = await window.djiBridge.platformGetAppVersion();
+              addLog(`App Version: ${appVersion}`);
+            } catch (err) {
+              addLog(`Error getting app version: ${err}`);
+            }
+            
+            // Try to get the SDK version
+            try {
+              const sdkVersion = await window.djiBridge.platformGetSDKVersion();
+              addLog(`SDK Version: ${sdkVersion}`);
+            } catch (err) {
+              addLog(`Error getting SDK version: ${err}`);
+            }
+            
+            // Try to get the current location
+            try {
+              const location = await window.djiBridge.platformGetCurrentLocation();
+              addLog(`Current Location: ${location}`);
+            } catch (err) {
+              addLog(`Error getting current location: ${err}`);
+            }
+            
+            // Try to get the flight status
+            try {
+              const flightStatus = await window.djiBridge.platformGetFlightStatus();
+              addLog(`Flight Status: ${flightStatus}`);
+            } catch (err) {
+              addLog(`Error getting flight status: ${err}`);
+            }
+            
+            // Try to get the battery level
+            try {
+              const batteryLevel = await window.djiBridge.platformGetBatteryLevel();
+              addLog(`Battery Level: ${batteryLevel}`);
+            } catch (err) {
+              addLog(`Error getting battery level: ${err}`);
+            }
+            
+            // Try to get the signal strength
+            try {
+              const signalStrength = await window.djiBridge.platformGetSignalStrength();
+              addLog(`Signal Strength: ${signalStrength}`);
+            } catch (err) {
+              addLog(`Error getting signal strength: ${err}`);
+            }
+            
+            // Try to get the GPS signal level
+            try {
+              const gpsSignal = await window.djiBridge.platformGetGPSSignalLevel();
+              addLog(`GPS Signal Level: ${gpsSignal}`);
+            } catch (err) {
+              addLog(`Error getting GPS signal level: ${err}`);
+            }
+            
+            // Try to get the home location
+            try {
+              const homeLocation = await window.djiBridge.platformGetHomeLocation();
+              addLog(`Home Location: ${homeLocation}`);
+            } catch (err) {
+              addLog(`Error getting home location: ${err}`);
+            }
+            
+            // Try to get the aircraft attitude
+            try {
+              const attitude = await window.djiBridge.platformGetAircraftAttitude();
+              addLog(`Aircraft Attitude: ${attitude}`);
+            } catch (err) {
+              addLog(`Error getting aircraft attitude: ${err}`);
+            }
+            
+            // Try to get the aircraft velocity
+            try {
+              const velocity = await window.djiBridge.platformGetAircraftVelocity();
+              addLog(`Aircraft Velocity: ${velocity}`);
+            } catch (err) {
+              addLog(`Error getting aircraft velocity: ${err}`);
+            }
+            
+            // Try to get the aircraft altitude
+            try {
+              const altitude = await window.djiBridge.platformGetAircraftAltitude();
+              addLog(`Aircraft Altitude: ${altitude}`);
+            } catch (err) {
+              addLog(`Error getting aircraft altitude: ${err}`);
+            }
+            
+            // Try to get the aircraft heading
+            try {
+              const heading = await window.djiBridge.platformGetAircraftHeading();
+              addLog(`Aircraft Heading: ${heading}`);
+            } catch (err) {
+              addLog(`Error getting aircraft heading: ${err}`);
             }
             
           } catch (err) {
-            addLog(`Error during telemetry setup: ${err}`);
+            addLog(`Error in device info gathering: ${err}`);
           }
         }, 2000);
       };
@@ -271,7 +280,7 @@ const DjiLoginPage: React.FC = () => {
         }
       };
 
-      // Set up the MQTT connection with the hardcoded parameters
+      // Try a simpler MQTT connection approach
       const cloudParams = JSON.stringify({
         host: '89.17.150.216',
         port: 1883,
@@ -303,51 +312,32 @@ const DjiLoginPage: React.FC = () => {
         }
       }
 
-      // Subscribe to all relevant topics
-      setTimeout(async () => {
-        const topics = [
-          '#',  // Subscribe to all topics
-          'sys/product/+/cmd_reply',  // Command replies
-          'thing/product/+/osd',      // OSD data
-          'thing/product/+/property'  // Property updates
-        ];
-        
-        for (const topic of topics) {
-          try {
-            addLog(`Subscribing to topic: ${topic}`);
-            const subscribeParams = JSON.stringify({
-              topic: topic,
-              qos: 0
-            });
-            
-            const subscribeResult = await window.djiBridge.platformLoadComponent('thing.subscribe', subscribeParams);
-            addLog(`Subscribe result for ${topic}: ${subscribeResult}`);
-          } catch (err) {
-            addLog(`Subscribe error for ${topic}: ${err}`);
-          }
-          
-          // Wait between subscribes
-          await new Promise(resolve => setTimeout(resolve, 500));
-        }
-      }, 3000);
-
-      // Also try to publish a test message directly to the broker
+      // Try to get telemetry directly from the DJI Bridge
       setTimeout(async () => {
         try {
-          const testParams = JSON.stringify({
-            topic: 'test/message',
-            message: JSON.stringify({
-              test: true,
-              timestamp: Date.now(),
-              message: 'Test message from DJI Bridge'
-            }),
-            qos: 0
-          });
+          // Try to register for telemetry updates
+          try {
+            const telemetryRegisterResult = await window.djiBridge.platformRegisterTelemetryCallback('onTelemetryUpdate');
+            addLog(`Telemetry register result: ${telemetryRegisterResult}`);
+          } catch (err) {
+            addLog(`Error registering telemetry callback: ${err}`);
+          }
           
-          const testResult = await window.djiBridge.platformLoadComponent('thing.publish', testParams);
-          addLog(`Test publish result: ${testResult}`);
+          // Define the telemetry callback
+          window.onTelemetryUpdate = function(telemetry: any) {
+            addLog(`Received telemetry update: ${telemetry}`);
+          };
+          
+          // Try to start telemetry updates
+          try {
+            const telemetryStartResult = await window.djiBridge.platformStartTelemetryUpdates();
+            addLog(`Telemetry start result: ${telemetryStartResult}`);
+          } catch (err) {
+            addLog(`Error starting telemetry updates: ${err}`);
+          }
+          
         } catch (err) {
-          addLog(`Error publishing test message: ${err}`);
+          addLog(`Error setting up direct telemetry: ${err}`);
         }
       }, 4000);
 
