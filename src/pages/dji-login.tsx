@@ -210,6 +210,21 @@ const DjiLoginPage: React.FC = () => {
               addLog('Direct publish failed');
             }
           }
+
+          // After successful connection
+          const subscribeParams = JSON.stringify({
+            topic: 'test',
+            qos: 0
+          });
+          try {
+            const subscribeResult = await window.djiBridge.platformLoadComponent('cloud.subscribe', subscribeParams);
+            addLog(`Subscribe result: ${subscribeResult}`);
+            
+            // Then try publishing to the same topic
+            // ...
+          } catch (err) {
+            addLog(`Subscribe error: ${err}`);
+          }
         }
       } catch (parseErr: any) {
         addLog(`Failed to parse Cloud Module result: ${parseErr?.message || 'Unknown parse error'}`);
