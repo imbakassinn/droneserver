@@ -303,7 +303,12 @@ const DjiLoginPage: React.FC = () => {
         const topics = [
           'sys/product/+/status',
           'thing/product/+/state',
-          'thing/product/+/property'
+          'thing/product/+/property',
+          'thing/product/+/osd',           // Telemetry data
+          'thing/product/+/event',         // Events like takeoff/landing
+          'thing/product/+/properties',    // Multiple properties at once
+          'thing/product/+/telemetry/#',   // All telemetry data
+          'thing/product/+/status'         // Status updates
         ];
         
         for (const topic of topics) {
@@ -324,6 +329,54 @@ const DjiLoginPage: React.FC = () => {
           await new Promise(resolve => setTimeout(resolve, 1000));
         }
       }, 3000);
+
+      // Add a function to request telemetry streaming
+      setTimeout(async () => {
+        try {
+          const sn = window.djiBridge.platformGetAircraftSN() || '1581F5BKB23C900F018N';
+          addLog(`Requesting telemetry for aircraft: ${sn}`);
+          
+          // Method 1: Request OSD data (basic telemetry)
+          const osdParams = JSON.stringify({
+            topic: `thing/product/${sn}/cmd`,
+            message: JSON.stringify({
+              tid: generateUUID(),
+              bid: generateUUID(),
+              timestamp: Date.now(),
+              method: "osd.get",
+              data: { frequency: 5 }  // Request 5Hz update rate
+            }),
+            qos: 0
+          });
+          
+          const osdResult = await window.djiBridge.platformLoadComponent('thing.cmd.send', osdParams);
+          addLog(`OSD request result: ${osdResult}`);
+          
+          // Method 2: Request specific properties
+          const propsParams = JSON.stringify({
+            topic: `thing/product/${sn}/cmd`,
+            message: JSON.stringify({
+              tid: generateUUID(),
+              bid: generateUUID(),
+              timestamp: Date.now(),
+              method: "property.get",
+              data: {
+                properties: [
+                  "latitude", "longitude", "altitude", 
+                  "height", "speed", "battery"
+                ]
+              }
+            }),
+            qos: 0
+          });
+          
+          const propsResult = await window.djiBridge.platformLoadComponent('thing.cmd.send', propsParams);
+          addLog(`Properties request result: ${propsResult}`);
+          
+        } catch (err) {
+          addLog(`Error requesting telemetry: ${err}`);
+        }
+      }, 5000);
 
       // Set Workspace Info
       addLog('Setting Workspace ID...');
