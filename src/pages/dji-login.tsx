@@ -250,12 +250,27 @@ const DjiLoginPage: React.FC = () => {
 
       // Define the message callback
       window.onTelemetryChange = function(message: any) {
-        addLog(`Received MQTT message: ${message}`);
         try {
-          const parsedMessage = JSON.parse(message);
-          addLog(`Parsed message: ${JSON.stringify(parsedMessage, null, 2)}`);
+          // Try to parse the message
+          let parsedMessage;
+          try {
+            parsedMessage = JSON.parse(message);
+          } catch (e) {
+            // If not JSON, use as is
+            parsedMessage = message;
+          }
+          
+          // Check if it's a topology update (which we've already seen)
+          if (typeof parsedMessage === 'object' && 
+              parsedMessage.method === "update_topo") {
+            // Just log a brief message for topology updates
+            addLog(`Received topology update from ${parsedMessage.data?.sub_devices?.[0]?.sn || 'unknown'}`);
+          } else {
+            // Log other messages in full
+            addLog(`Received MQTT message: ${JSON.stringify(parsedMessage, null, 2)}`);
+          }
         } catch (e) {
-          addLog(`Could not parse message as JSON: ${e}`);
+          addLog(`Error in message callback: ${e}`);
         }
       };
 
@@ -330,53 +345,104 @@ const DjiLoginPage: React.FC = () => {
         }
       }, 3000);
 
-      // Add a function to request telemetry streaming
+      // Add a more comprehensive telemetry request function
       setTimeout(async () => {
         try {
-          const sn = window.djiBridge.platformGetAircraftSN() || '1581F5BKB23C900F018N';
-          addLog(`Requesting telemetry for aircraft: ${sn}`);
+          // Get the device SNs
+          const aircraftSn = window.djiBridge.platformGetAircraftSN() || '1581F5BKB23C900F018N';
+          const gatewaySn = '4LFCLC7006N944'; // The remote controller SN from your logs
           
-          // Method 1: Request OSD data (basic telemetry)
-          const osdParams = JSON.stringify({
-            topic: `thing/product/${sn}/cmd`,
-            message: JSON.stringify({
-              tid: generateUUID(),
-              bid: generateUUID(),
-              timestamp: Date.now(),
-              method: "osd.get",
-              data: { frequency: 5 }  // Request 5Hz update rate
-            }),
-            qos: 0
+          addLog(`Requesting telemetry for aircraft: ${aircraftSn} via gateway: ${gatewaySn}`);
+          
+          // Method 1: Enable live streaming (most direct approach)
+          const liveParams = JSON.stringify({
+            sn: aircraftSn,
+            enable: true
           });
           
-          const osdResult = await window.djiBridge.platformLoadComponent('thing.cmd.send', osdParams);
-          addLog(`OSD request result: ${osdResult}`);
+          try {
+            const liveResult = await window.djiBridge.platformLoadComponent('thing.live.enable', liveParams);
+            addLog(`Live streaming enable result: ${liveResult}`);
+          } catch (err) {
+            addLog(`Error enabling live streaming: ${err}`);
+          }
           
-          // Method 2: Request specific properties
-          const propsParams = JSON.stringify({
-            topic: `thing/product/${sn}/cmd`,
+          // Method 2: Request OSD data with specific format
+          const osdParams = JSON.stringify({
+            topic: `sys/product/${gatewaySn}/cmd`,
             message: JSON.stringify({
               tid: generateUUID(),
               bid: generateUUID(),
               timestamp: Date.now(),
-              method: "property.get",
+              method: "thing.command.invoke",
               data: {
-                properties: [
-                  "latitude", "longitude", "altitude", 
-                  "height", "speed", "battery"
-                ]
+                sn: aircraftSn,
+                command: "osd.get",
+                params: {
+                  frequency: 5
+                }
               }
             }),
-            qos: 0
+            qos: 1
           });
           
-          const propsResult = await window.djiBridge.platformLoadComponent('thing.cmd.send', propsParams);
-          addLog(`Properties request result: ${propsResult}`);
+          try {
+            const osdResult = await window.djiBridge.platformLoadComponent('thing.cmd.send', osdParams);
+            addLog(`OSD request result: ${osdResult}`);
+          } catch (err) {
+            addLog(`Error requesting OSD: ${err}`);
+          }
+          
+          // Method 3: Try to enable specific telemetry items
+          const telemetryItems = [
+            "latitude", "longitude", "altitude", "height", 
+            "home_latitude", "home_longitude", "velocity_x", "velocity_y", "velocity_z",
+            "pitch", "roll", "yaw", "battery_percent", "wind_speed", "wind_direction"
+          ];
+          
+          for (const item of telemetryItems) {
+            try {
+              const itemParams = JSON.stringify({
+                topic: `sys/product/${gatewaySn}/cmd`,
+                message: JSON.stringify({
+                  tid: generateUUID(),
+                  bid: generateUUID(),
+                  timestamp: Date.now(),
+                  method: "thing.property.set",
+                  data: {
+                    sn: aircraftSn,
+                    property: item,
+                    value: true
+                  }
+                }),
+                qos: 1
+              });
+              
+              const itemResult = await window.djiBridge.platformLoadComponent('thing.cmd.send', itemParams);
+              addLog(`Enabled telemetry item ${item}: ${itemResult}`);
+              
+              // Small delay between requests
+              await new Promise(resolve => setTimeout(resolve, 200));
+            } catch (err) {
+              addLog(`Error enabling telemetry item ${item}: ${err}`);
+            }
+          }
+          
+          // Method 4: Try direct component method for telemetry
+          try {
+            const telemetryResult = await window.djiBridge.platformLoadComponent('thing.telemetry.enable', JSON.stringify({
+              sn: aircraftSn,
+              enable: true
+            }));
+            addLog(`Telemetry enable result: ${telemetryResult}`);
+          } catch (err) {
+            addLog(`Error enabling telemetry component: ${err}`);
+          }
           
         } catch (err) {
-          addLog(`Error requesting telemetry: ${err}`);
+          addLog(`Error in telemetry request function: ${err}`);
         }
-      }, 5000);
+      }, 8000);
 
       // Set Workspace Info
       addLog('Setting Workspace ID...');
