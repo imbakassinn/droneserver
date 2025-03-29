@@ -109,9 +109,10 @@ const DjiLoginPage: React.FC = () => {
             try {
               // Get the device SN for topic construction
               const deviceSn = window.djiBridge.platformGetAircraftSN();
+              addLog(`Device SN: ${deviceSn}`);
               
               // Use the correct topic format for DJI
-              const topic = `thing/product/${deviceSn}/property`;
+              const topic = `thing/product/${deviceSn || 'default'}/property`;
               
               const publishParams = JSON.stringify({
                 topic: topic,
@@ -127,9 +128,21 @@ const DjiLoginPage: React.FC = () => {
               
               addLog(`Publishing with params: ${publishParams}`);
               
-              // Use the correct method for publishing
-              const publishResult = await window.djiBridge.platformLoadComponent('thing.property.post', publishParams);
-              addLog(`Publish result: ${publishResult}`);
+              // Try different methods for publishing
+              const methods = ['thing.property.post', 'thing.publish', 'thing.post'];
+              
+              for (const method of methods) {
+                try {
+                  addLog(`Trying to publish using ${method}...`);
+                  const publishResult = await window.djiBridge.platformLoadComponent(method, publishParams);
+                  addLog(`${method} result: ${publishResult}`);
+                } catch (err) {
+                  addLog(`Failed with ${method}: ${err}`);
+                }
+                
+                // Wait between attempts
+                await new Promise(resolve => setTimeout(resolve, 1000));
+              }
             } catch (err) {
               addLog(`Error during publish: ${err}`);
             }
@@ -144,16 +157,12 @@ const DjiLoginPage: React.FC = () => {
         addLog(`Received MQTT message: ${message}`);
       };
 
-      // Get MQTT connection parameters from the server
-      const getUserInfoResponse = await getUserInfo();
-      addLog(`User info response: ${JSON.stringify(getUserInfoResponse)}`);
-
-      // Set up the MQTT connection with the correct parameters
+      // Set up the MQTT connection with the hardcoded parameters
       const cloudParams = JSON.stringify({
-        host: getUserInfoResponse.data.mqtt_addr,
+        host: '89.17.150.216',
         port: 1883,
-        username: getUserInfoResponse.data.mqtt_username,
-        password: getUserInfoResponse.data.mqtt_password,
+        username: 'droneuser',
+        password: 'Jotunheimar',
         connectCallback: 'connectCallback',  // Use the global function name
         messageCallback: 'onTelemetryChange',
         clientId: `dji_pilot_${Date.now()}`,
@@ -164,8 +173,25 @@ const DjiLoginPage: React.FC = () => {
       addLog(`Loading Thing Module with params: ${cloudParams}`);
 
       // Load the 'thing' component instead of 'cloud'
-      const thingLoadResultStr = await window.djiBridge.platformLoadComponent('thing', cloudParams);
-      addLog(`Thing Module Load Result: ${thingLoadResultStr}`);
+      try {
+        const thingLoadResultStr = await window.djiBridge.platformLoadComponent('thing', cloudParams);
+        addLog(`Thing Module Load Result: ${thingLoadResultStr}`);
+        
+        // Parse the result if possible
+        try {
+          const thingLoadResult = JSON.parse(thingLoadResultStr);
+          addLog(`Parsed Thing Load Result: ${JSON.stringify(thingLoadResult, null, 2)}`);
+        } catch (e) {
+          addLog(`Error parsing thing load result: ${e}`);
+        }
+      } catch (e) {
+        addLog(`Error loading thing module: ${e}`);
+        
+        // Fall back to cloud module if thing module fails
+        addLog('Falling back to cloud module...');
+        const cloudLoadResultStr = await window.djiBridge.platformLoadComponent('cloud', cloudParams);
+        addLog(`Cloud Module Load Result: ${cloudLoadResultStr}`);
+      }
 
       // Set Workspace Info
       addLog('Setting Workspace ID...');
