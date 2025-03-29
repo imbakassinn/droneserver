@@ -103,22 +103,37 @@ const DjiLoginPage: React.FC = () => {
         try {
           // Parse the status if it's a string
           let statusObj = status;
-          if (typeof status === 'string') {
-            try {
-              statusObj = JSON.parse(status);
-              addLog(`Parsed status: ${JSON.stringify(statusObj, null, 2)}`);
-            } catch (e) {
-              // If it's not JSON, keep the original value
-            }
-          }
+          let isConnected = false;
           
-          // Check various possible connection status formats
-          const isConnected = 
-            status === true || 
-            status === 'true' || 
-            (statusObj && statusObj.code === 0) ||
-            (statusObj && statusObj.connected === true) ||
-            (statusObj && statusObj.data && statusObj.data.connectState === 1);
+          if (typeof status === 'boolean') {
+            // If status is a boolean, use it directly
+            isConnected = status;
+          } else if (typeof status === 'string') {
+            // If status is a string, check if it's 'true' or try to parse it as JSON
+            if (status === 'true') {
+              isConnected = true;
+            } else {
+              try {
+                statusObj = JSON.parse(status);
+                addLog(`Parsed status: ${JSON.stringify(statusObj, null, 2)}`);
+                
+                // Check if the parsed object indicates a successful connection
+                isConnected = 
+                  (statusObj && statusObj.code === 0) ||
+                  (statusObj && statusObj.connected === true) ||
+                  (statusObj && statusObj.data && statusObj.data.connectState === 1);
+              } catch (e) {
+                // If it's not valid JSON, assume disconnected
+                addLog(`Error parsing status: ${e}`);
+              }
+            }
+          } else if (typeof status === 'object' && status !== null) {
+            // If status is already an object, check its properties
+            isConnected = 
+              (status.code === 0) ||
+              (status.connected === true) ||
+              (status.data && status.data.connectState === 1);
+          }
           
           if (isConnected) {
             addLog('MQTT Connected! Will attempt to publish test message...');
