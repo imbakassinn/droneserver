@@ -33,6 +33,14 @@ declare global {
   }
 }
 
+// Helper function to generate UUID for bid and tid
+function generateUUID() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
 
 const DjiLoginPage: React.FC = () => {
   const [username, setUsername] = useState('');
@@ -250,15 +258,6 @@ const DjiLoginPage: React.FC = () => {
           addLog(`Could not parse message as JSON: ${e}`);
         }
       };
-
-      // Helper function to generate UUID for bid and tid
-      function generateUUID() {
-        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-          const r = Math.random() * 16 | 0;
-          const v = c === 'x' ? r : (r & 0x3 | 0x8);
-          return v.toString(16);
-        });
-      }
 
       // Set up the MQTT connection with the hardcoded parameters
       const cloudParams = JSON.stringify({
