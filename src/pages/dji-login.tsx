@@ -95,20 +95,9 @@ const DjiLoginPage: React.FC = () => {
         addLog('Failed to get device info');
       }
 
-      const cloudParams = JSON.stringify({
-        host: '89.17.150.216',
-        port: 1883,
-        username: 'droneuser',
-        password: 'Jotunheimar',
-        connectCallback: 'onMqttStatusChange',
-        messageCallback: 'onTelemetryChange',
-        clientId: `dji_pilot_${Date.now()}`,
-        clean: true,
-        protocol: 'tcp'
-      });
-
-      // Define the callback functions in the global scope before loading the module
-      window.onMqttStatusChange = (status) => {
+      // 1. First, let's try a different approach to define the callbacks
+      // Define these callbacks BEFORE loading the cloud module
+      window.onMqttStatusChange = function(status) {
         addLog(`MQTT Status Change: ${status}`);
         try {
           const statusObj = JSON.parse(status);
@@ -118,43 +107,53 @@ const DjiLoginPage: React.FC = () => {
           if (statusObj.code === 0 && statusObj.data?.connectState === 1) {
             addLog('MQTT Connected! Will attempt to publish test message...');
             
-            // Try publishing with a simple topic
-            setTimeout(async () => {
+            // 2. Try a direct approach with a simpler implementation
+            setTimeout(async function() {
               try {
-                const simplePublishParams = JSON.stringify({
-                  topic: 'test',  // Use a very simple topic
-                  message: 'Test from DJI Bridge',
+                // Try subscribing first
+                const subscribeParams = JSON.stringify({
+                  topic: '#',  // Subscribe to all topics
                   qos: 0
                 });
                 
-                addLog(`Attempting to publish with params: ${simplePublishParams}`);
-                
-                // Try different component names for publishing
-                const componentNames = ['cloud.publish', 'cloud.send', 'thing.publish', 'thing.send'];
-                
-                for (const component of componentNames) {
-                  try {
-                    addLog(`Trying to publish using ${component}...`);
-                    const publishResult = await window.djiBridge.platformLoadComponent(component, simplePublishParams);
-                    addLog(`${component} result: ${publishResult}`);
-                  } catch (err) {
-                    addLog(`Failed with ${component}: ${err}`);
-                  }
-                  
-                  // Wait between attempts
-                  await new Promise(resolve => setTimeout(resolve, 1000));
+                addLog('Attempting to subscribe to all topics...');
+                try {
+                  const subscribeResult = await window.djiBridge.platformLoadComponent('cloud.subscribe', subscribeParams);
+                  addLog(`Subscribe result: ${subscribeResult}`);
+                } catch (err) {
+                  addLog(`Subscribe error: ${err}`);
                 }
+                
+                // Wait a moment after subscribing
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                // 3. Try with the exact same topic that worked in your minimal script
+                const publishParams = JSON.stringify({
+                  topic: 'test/topic',  // Use the same topic that worked in your minimal script
+                  message: JSON.stringify({
+                    source: 'dji_bridge',
+                    timestamp: Date.now(),
+                    test: true
+                  }),
+                  qos: 0
+                });
+                
+                addLog(`Publishing with params: ${publishParams}`);
+                const publishResult = await window.djiBridge.platformLoadComponent('cloud.publish', publishParams);
+                addLog(`Publish result: ${publishResult}`);
+                
               } catch (err) {
-                addLog(`Error during publish attempts: ${err}`);
+                addLog(`Error during MQTT operations: ${err}`);
               }
-            }, 2000); // Wait 2 seconds after connection before publishing
+            }, 3000); // Wait 3 seconds after connection before publishing
           }
         } catch (e) {
           addLog(`Error parsing MQTT status: ${e}`);
         }
       };
 
-      window.onTelemetryChange = (message) => {
+      // 4. Make sure the telemetry callback is properly defined
+      window.onTelemetryChange = function(message) {
         addLog(`Received MQTT message: ${message}`);
         try {
           const parsedMessage = JSON.parse(message);
@@ -164,65 +163,39 @@ const DjiLoginPage: React.FC = () => {
         }
       };
 
-      addLog('Loading Cloud Module...');
+      // 5. Add more detailed logging for the cloud module loading
+      addLog('Loading Cloud Module with explicit parameters...');
+      const cloudParams = JSON.stringify({
+        host: '89.17.150.216',
+        port: 1883,
+        username: 'droneuser',
+        password: 'Jotunheimar',
+        connectCallback: 'onMqttStatusChange',
+        messageCallback: 'onTelemetryChange',
+        clientId: `dji_pilot_${Date.now()}`,
+        clean: true,
+        protocol: 'tcp',
+        // 6. Add additional parameters that might be required
+        keepalive: 60,
+        reconnectPeriod: 1000,
+        connectTimeout: 30000
+      });
+
+      addLog(`Cloud params: ${cloudParams}`);
       const cloudLoadResultStr = await window.djiBridge.platformLoadComponent('cloud', cloudParams);
       addLog(`Raw Cloud Module Load Result: ${cloudLoadResultStr}`);
-      
+
+      // 7. Try to parse the result to understand what's happening
       try {
         const cloudLoadResult = JSON.parse(cloudLoadResultStr);
-        addLog(`Parsed Cloud Module Load Result: ${JSON.stringify(cloudLoadResult, null, 2)}`);
-
-        if (cloudLoadResult.code === 0) {
-          // Try different component names for publishing
-          const componentNames = ['cloud.publish', 'cloud.send', 'thing.publish', 'thing.send'];
-          
-          for (const component of componentNames) {
-            const testPublishParams = JSON.stringify({
-              topic: 'test',  // Try a simple topic first
-              message: `Test from ${component}`,
-              qos: 0
-            });
-            
-            try {
-              addLog(`Attempting to publish using ${component}...`);
-              const publishResult = await window.djiBridge.platformLoadComponent(component, testPublishParams);
-              addLog(`${component} result: ${publishResult}`);
-            } catch (err) {
-              addLog(`Failed with ${component}: ${err}`);
-            }
-            
-            // Wait between attempts
-            await new Promise(resolve => setTimeout(resolve, 1000));
-          }
-
-          // Try direct method if available
-          if (typeof window.djiBridge.cloudPublish === 'function') {
-            try {
-              addLog('Attempting direct cloudPublish...');
-              const directResult = await window.djiBridge.cloudPublish('test', 'Direct publish test');
-              addLog(`Direct publish result: ${directResult}`);
-            } catch (err) {
-              addLog('Direct publish failed');
-            }
-          }
-
-          // After successful connection
-          const subscribeParams = JSON.stringify({
-            topic: 'test',
-            qos: 0
-          });
-          try {
-            const subscribeResult = await window.djiBridge.platformLoadComponent('cloud.subscribe', subscribeParams);
-            addLog(`Subscribe result: ${subscribeResult}`);
-            
-            // Then try publishing to the same topic
-            // ...
-          } catch (err) {
-            addLog(`Subscribe error: ${err}`);
-          }
+        addLog(`Parsed Cloud Load Result: ${JSON.stringify(cloudLoadResult, null, 2)}`);
+        
+        // Check if there's any specific error code or message
+        if (cloudLoadResult.code !== 0) {
+          addLog(`Cloud module load error: Code ${cloudLoadResult.code}`);
         }
-      } catch (parseErr: any) {
-        addLog(`Failed to parse Cloud Module result: ${parseErr?.message || 'Unknown parse error'}`);
+      } catch (e) {
+        addLog(`Error parsing cloud load result: ${e}`);
       }
 
       // Set Workspace Info
